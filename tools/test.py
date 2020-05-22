@@ -24,6 +24,9 @@ from toolkit.utils.region import vot_overlap, vot_float2str
 parser = argparse.ArgumentParser(description='siamrpn tracking')
 parser.add_argument('--dataset', type=str,
         help='datasets')
+parser.add_argument('--dataset_dir', type=str,
+        default='/media/wattanapongsu/3T/dataset',
+        help='dataset directory')
 parser.add_argument('--config', default='', type=str,
         help='config file')
 parser.add_argument('--snapshot', default='', type=str,
@@ -41,7 +44,7 @@ def main():
     cfg.merge_from_file(args.config)
 
     cur_dir = os.path.dirname(os.path.realpath(__file__))
-    dataset_root = os.path.join('/media/wattanapongsu/3T/dataset', args.dataset)
+    dataset_root = os.path.join(, args.dataset)
 
     # create model
     model = ModelBuilder()
