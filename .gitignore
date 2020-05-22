@@ -105,3 +105,14 @@ venv.bak/
 
 testing_dataset/*
 experiments
+
+# model
+*.pth
+
+# images
+*.jpg
+*.bmp
+*.jpeg
+
+# video
+*.avi

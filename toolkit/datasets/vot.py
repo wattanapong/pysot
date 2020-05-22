@@ -29,6 +29,7 @@ class VOTVideo(Video):
             camera_motion, illum_change, motion_change, size_change, occlusion, load_img=False):
         super(VOTVideo, self).__init__(name, root, video_dir,
                 init_rect, img_names, gt_rect, None, load_img)
+
         self.tags= {'all': [1] * len(gt_rect)}
         self.tags['camera_motion'] = camera_motion
         self.tags['illum_change'] = illum_change

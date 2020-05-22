@@ -41,7 +41,7 @@ def main():
     cfg.merge_from_file(args.config)
 
     cur_dir = os.path.dirname(os.path.realpath(__file__))
-    dataset_root = os.path.join(cur_dir, '../testing_dataset', args.dataset)
+    dataset_root = os.path.join('/media/wattanapongsu/3T/dataset', args.dataset)
 
     # create model
     model = ModelBuilder()
