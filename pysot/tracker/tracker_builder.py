@@ -7,13 +7,15 @@ from __future__ import unicode_literals
 
 from pysot.core.config import cfg
 from pysot.tracker.siamrpn_tracker import SiamRPNTracker
+from pysot.tracker.siamrpn_attack_tracker import SiamRPNAttackTracker
 from pysot.tracker.siammask_tracker import SiamMaskTracker
 from pysot.tracker.siamrpnlt_tracker import SiamRPNLTTracker
 
 TRACKS = {
           'SiamRPNTracker': SiamRPNTracker,
           'SiamMaskTracker': SiamMaskTracker,
-          'SiamRPNLTTracker': SiamRPNLTTracker
+          'SiamRPNLTTracker': SiamRPNLTTracker,
+          'SiamRPNAttackTracker': SiamRPNAttackTracker
          }
 
 
