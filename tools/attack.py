@@ -33,12 +33,16 @@ parser.add_argument('--dataset', type=str,
 parser.add_argument('--dataset_dir', type=str,
         default='/media/wattanapongsu/3T/dataset',
         help='dataset directory')
+parser.add_argument('--savedir', default='', type=str,
+        help='save images and videos in this directory')
 parser.add_argument('--config', default='', type=str,
         help='config file')
 parser.add_argument('--snapshot', default='', type=str,
         help='snapshot of models to eval')
 parser.add_argument('--video', default='', type=str,
         help='eval one special video')
+parser.add_argument('--epsilon', default='0.1', type=float,
+        help='fgsm epsilon')
 parser.add_argument('--vis', action='store_true',
         help='whether visualize result')
 args = parser.parse_args()
@@ -65,6 +69,8 @@ def main():
     cur_dir = os.path.dirname(os.path.realpath(__file__))
     dataset_root = os.path.join(args.dataset_dir, args.dataset)
 
+    epsilon = args.epsilon
+
     # create model
     model = ModelBuilder()
 
@@ -86,6 +92,7 @@ def main():
 
     model_name = args.snapshot.split('/')[-1].split('.')[0]
     total_lost = 0
+
     if args.dataset in ['VOT2016', 'VOT2018', 'VOT2019']:
 
         # restart tracking
@@ -97,7 +104,7 @@ def main():
 
             # set writing video parameters
             height, width, channels = video[0][0].shape
-            out = cv2.VideoWriter('/media/wattanapongsu/3T/temp/save/' + video.name + '.avi',
+            out = cv2.VideoWriter(os.path.join(args.savedir, video.name + '.avi'),
                                   cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'), 15, (width, height))
             frame_counter = 0
             lost_number = 0
@@ -143,12 +150,12 @@ def main():
                     data_grad = data['search'].grad
 
                     # torch.Tensor(img.transpose([2, 0, 1])).unsqueeze(dim=0)
-                    perturb_data = fgsm_attack(data['search']/255, 0.05, data_grad)*255
+                    perturb_data = fgsm_attack(data['search']/255, epsilon, data_grad)*255
                     img2 = img
-                    # cv2.imwrite('/media/wattanapongsu/3T/temp/save/original_' + str(idx) + '.jpg', img)
+                    # cv2.imwrite(os.path.join(args.savedir, 'original_' + str(idx) + '.jpg'), img)
 
                     _img = perturb_data.data.cpu().numpy().squeeze().transpose([1, 2, 0])
-                    # cv2.imwrite('/media/wattanapongsu/3T/temp/save/perturb_' + str(idx) + '.jpg', _img)
+                    # cv2.imwrite(os.path.join(args.savedir, 'perturb_' + str(idx) + '.jpg'), _img)
 
                     if not np.array_equal(cfg.TRACK.INSTANCE_SIZE, sz):
                         # perturb_data = cv2.resize(perturb_data, sz)
@@ -156,7 +163,7 @@ def main():
 
                     _img = perturb_data.data.cpu().numpy().squeeze().transpose([1, 2, 0])
                     img[box[0]:box[1]+1, box[2]:box[3]+1, :] = _img
-                    # cv2.imwrite('/media/wattanapongsu/3T/temp/save/perturb_full_' + str(idx) + '.jpg', img)
+                    # cv2.imwrite(os.path.join(args.savedir, 'perturb_full_' + str(idx) + '.jpg'), img)
 
                     outputs = tracker.track(img)
 
@@ -200,7 +207,7 @@ def main():
                               (bbox[0] + bbox[2], bbox[1] + bbox[3]), (0, 255, 255), 3)
                 cv2.putText(img, str(idx), (40, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
                 cv2.putText(img, str(lost_number), (40, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                # cv2.imwrite('/media/wattanapongsu/3T/temp/save/track_' + str(idx) + '.jpg', img)
+                # cv2.imwrite(os.path.join(args.savedir, 'track_' + str(idx) + '.jpg'), img)
                 out.write(img)
 
             toc /= cv2.getTickFrequency()
