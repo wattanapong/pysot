@@ -112,4 +112,5 @@ class ModelBuilder(nn.Module):
             mask_loss = None
             outputs['total_loss'] += cfg.TRAIN.MASK_WEIGHT * mask_loss
             outputs['mask_loss'] = mask_loss
+
         return outputs

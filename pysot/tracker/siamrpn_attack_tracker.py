@@ -7,10 +7,13 @@ from __future__ import unicode_literals
 
 import numpy as np
 import torch.nn.functional as F
+import cv2
+import torch
 
 from pysot.core.config import cfg
 from pysot.utils.anchor import Anchors
 from pysot.tracker.base_tracker import SiameseTracker
+from pysot.datasets.anchor_target import AnchorTarget
 
 
 class SiamRPNAttackTracker(SiameseTracker):
@@ -25,6 +28,8 @@ class SiamRPNAttackTracker(SiameseTracker):
         self.anchors = self.generate_anchor(self.score_size)
         self.model = model
         self.model.eval()
+
+        self.anchor_target = AnchorTarget()
 
     def generate_anchor(self, score_size):
         anchors = Anchors(cfg.ANCHOR.STRIDE,
@@ -66,34 +71,37 @@ class SiamRPNAttackTracker(SiameseTracker):
         height = max(10, min(height, boundary[0]))
         return cx, cy, width, height
 
-    def crop(self, img, bbox=None):
+    def crop(self, img, bbox=None, is_template=True, im_name=None):
         # calculate channel average
         self.channel_average = np.mean(img, axis=(0, 1))
 
         # calculate z crop size
-        if bbox is not None:
+        if is_template:
             self.size = np.array([bbox[2], bbox[3]])
 
         w_z = self.size[0] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
         h_z = self.size[1] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
         s_z = round(np.sqrt(w_z * h_z))
 
-        if bbox is not None:
+        if is_template:
             sz = s_z
             self.center_pos = np.array([bbox[0] + (bbox[2] - 1) / 2,
                                         bbox[1] + (bbox[3] - 1) / 2])
             limit_size = cfg.TRACK.EXEMPLAR_SIZE
         else:
-            s_z = np.sqrt(w_z * h_z)
             s_x = s_z * (cfg.TRACK.INSTANCE_SIZE / cfg.TRACK.EXEMPLAR_SIZE)
             sz = round(s_x)
-            s_x = sz * (cfg.TRACK.INSTANCE_SIZE / cfg.TRACK.EXEMPLAR_SIZE)
+            # s_x = sz * (cfg.TRACK.INSTANCE_SIZE / cfg.TRACK.EXEMPLAR_SIZE)
             limit_size = cfg.TRACK.INSTANCE_SIZE
 
         # get crop
-        _crop = self.get_subwindow(img, self.center_pos, limit_size, sz, self.channel_average)
+        _crop, box = self.get_subwindow_custom(img, self.center_pos, limit_size, sz, self.channel_average)
 
-        return _crop
+        if im_name is not None:
+            _img = _crop.data.cpu().numpy().squeeze().transpose([1, 2, 0])
+            # cv2.imwrite('/media/wattanapongsu/3T/temp/save/' + im_name+'.jpg', _img)
+
+        return _crop, sz, box
 
     def init(self, img, bbox):
         """
@@ -101,9 +109,13 @@ class SiamRPNAttackTracker(SiameseTracker):
             img(np.ndarray): BGR image
             bbox: (x, y, w, h) bbox
         """
-        self.center_pos = np.array([bbox[0]+(bbox[2]-1)/2,
-                                    bbox[1]+(bbox[3]-1)/2])
+        self.center_pos = np.array([bbox[0] + (bbox[2] - 1) / 2, bbox[1] + (bbox[3] - 1) / 2])
         self.size = np.array([bbox[2], bbox[3]])
+
+        # get labels
+        bb = np.array([bbox[0],bbox[1],bbox[0]+bbox[2], bbox[1]+bbox[3]])
+        cls, delta, delta_weight, overlap = self.anchor_target(
+            bb, cfg.TRAIN.OUTPUT_SIZE)
 
         # calculate z crop size
         w_z = self.size[0] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
@@ -114,7 +126,7 @@ class SiamRPNAttackTracker(SiameseTracker):
         self.channel_average = np.mean(img, axis=(0, 1))
 
         # get crop
-        z_crop = self.get_subwindow(img, self.center_pos,
+        z_crop, _ = self.get_subwindow_custom(img, self.center_pos,
                                     cfg.TRACK.EXEMPLAR_SIZE,
                                     s_z, self.channel_average)
         self.model.template(z_crop)
@@ -189,3 +201,62 @@ class SiamRPNAttackTracker(SiameseTracker):
                 'bbox': bbox,
                 'best_score': best_score
                }
+
+    def get_subwindow_custom(self, im, pos, model_sz, original_sz, avg_chans):
+        """
+        args:
+            im: bgr based image
+            pos: center position
+            model_sz: exemplar size
+            s_z: original size
+            avg_chans: channel average
+        """
+        if isinstance(pos, float):
+            pos = [pos, pos]
+        sz = original_sz
+        im_sz = im.shape
+        c = (original_sz + 1) / 2
+        # context_xmin = round(pos[0] - c) # py2 and py3 round
+        context_xmin = np.floor(pos[0] - c + 0.5)
+        context_xmax = context_xmin + sz - 1
+        # context_ymin = round(pos[1] - c)
+        context_ymin = np.floor(pos[1] - c + 0.5)
+        context_ymax = context_ymin + sz - 1
+        left_pad = int(max(0., -context_xmin))
+        top_pad = int(max(0., -context_ymin))
+        right_pad = int(max(0., context_xmax - im_sz[1] + 1))
+        bottom_pad = int(max(0., context_ymax - im_sz[0] + 1))
+
+        context_xmin = context_xmin + left_pad
+        context_xmax = context_xmax + left_pad
+        context_ymin = context_ymin + top_pad
+        context_ymax = context_ymax + top_pad
+
+        r, c, k = im.shape
+        if any([top_pad, bottom_pad, left_pad, right_pad]):
+            size = (r + top_pad + bottom_pad, c + left_pad + right_pad, k)
+            te_im = np.zeros(size, np.uint8)
+            te_im[top_pad:top_pad + r, left_pad:left_pad + c, :] = im
+            if top_pad:
+                te_im[0:top_pad, left_pad:left_pad + c, :] = avg_chans
+            if bottom_pad:
+                te_im[r + top_pad:, left_pad:left_pad + c, :] = avg_chans
+            if left_pad:
+                te_im[:, 0:left_pad, :] = avg_chans
+            if right_pad:
+                te_im[:, c + left_pad:, :] = avg_chans
+            im_patch = te_im[int(context_ymin):int(context_ymax + 1),
+                             int(context_xmin):int(context_xmax + 1), :]
+        else:
+            im_patch = im[int(context_ymin):int(context_ymax + 1),
+                          int(context_xmin):int(context_xmax + 1), :]
+
+        if not np.array_equal(model_sz, original_sz):
+            im_patch = cv2.resize(im_patch, (model_sz, model_sz))
+        im_patch = im_patch.transpose(2, 0, 1)
+        im_patch = im_patch[np.newaxis, :, :, :]
+        im_patch = im_patch.astype(np.float32)
+        im_patch = torch.from_numpy(im_patch)
+        if cfg.CUDA:
+            im_patch = im_patch.cuda()
+        return im_patch, [int(context_ymin), int(context_ymax), int(context_xmin), int(context_xmax)]

@@ -7,11 +7,16 @@ from __future__ import unicode_literals
 
 import argparse
 import os
+import logging
 
 import cv2
 import torch
 import numpy as np
+import torch.nn.functional as F
+import pdb
+from torchvision.transforms import ToTensor, ToPILImage
 
+from torch.utils.data import DataLoader
 from pysot.core.config import cfg
 from pysot.models.model_builder import ModelBuilder
 from pysot.tracker.tracker_builder import build_tracker
@@ -19,6 +24,8 @@ from pysot.utils.bbox import get_axis_aligned_bbox
 from pysot.utils.model_load import load_pretrain
 from toolkit.datasets import DatasetFactory
 from toolkit.utils.region import vot_overlap, vot_float2str
+
+logger = logging.getLogger('global')
 
 parser = argparse.ArgumentParser(description='siamrpn tracking')
 parser.add_argument('--dataset', type=str,
@@ -33,7 +40,7 @@ parser.add_argument('--snapshot', default='', type=str,
 parser.add_argument('--video', default='', type=str,
         help='eval one special video')
 parser.add_argument('--vis', action='store_true',
-        help='whether visualzie result')
+        help='whether visualize result')
 args = parser.parse_args()
 
 torch.set_num_threads(1)
@@ -62,7 +69,7 @@ def main():
     model = ModelBuilder()
 
     # load model
-    model = load_pretrain(model, args.snapshot).cuda().eval()
+    model = load_pretrain(model, args.snapshot).cuda().train()
 
     # build tracker
     tracker = build_tracker(model)
@@ -70,23 +77,35 @@ def main():
     # create dataset
     dataset = DatasetFactory.create_dataset(name=args.dataset,
                                             dataset_root=dataset_root,
-                                            load_img=False)
+                                            load_img=False,
+                                            config=cfg)
+    #
+    # vid.name = {'ants1','ants3',....}
+    # img, bbox, cls, delta, delta_weight
+    # vid[0][0],vid[0][1],vid[0][2],vid[0][3],vid[0][4]
 
     model_name = args.snapshot.split('/')[-1].split('.')[0]
     total_lost = 0
     if args.dataset in ['VOT2016', 'VOT2018', 'VOT2019']:
+
         # restart tracking
         for v_idx, video in enumerate(dataset):
             if args.video != '':
                 # test one special video
                 if video.name != args.video:
                     continue
+
+            # set writing video parameters
+            height, width, channels = video[0][0].shape
+            out = cv2.VideoWriter('/media/wattanapongsu/3T/temp/save/' + video.name + '.avi',
+                                  cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'), 15, (width, height))
             frame_counter = 0
             lost_number = 0
             toc = 0
             pred_bboxes = []
             data = {'template': None, 'search': None}
-            for idx, (img, gt_bbox) in enumerate(video):
+            for idx, (img, gt_bbox, cls, delta_cls, delta_w, _bbox, cls_s, delta_cls_s, delta_w_s, _bbox_s) \
+                    in enumerate(video):
                 if len(gt_bbox) == 4:
                     gt_bbox = [gt_bbox[0], gt_bbox[1],
                        gt_bbox[0], gt_bbox[1]+gt_bbox[3]-1,
@@ -95,24 +114,51 @@ def main():
                 tic = cv2.getTickCount()
                 if idx == frame_counter:
                     cx, cy, w, h = get_axis_aligned_bbox(np.array(gt_bbox))
+
                     gt_bbox_ = [cx-(w-1)/2, cy-(h-1)/2, w, h]
                     tracker.init(img, gt_bbox_)
                     pred_bbox = gt_bbox_
                     pred_bboxes.append(1)
-                    data['template'] = torch.autograd.Variable(tracker.crop(img, bbox=gt_bbox_), requires_grad=True).cuda()
-                elif idx > frame_counter:
-                    import pdb
-                    pdb.set_trace()
-                    # img2 = torch.autograd.Variable(torch.from_numpy(img).type(torch.FloatTensor), requires_grad=True)
-                    img_search = torch.autograd.Variable(tracker.crop(img), requires_grad=True).cuda()
-                    data['search'] = img_search.cuda()
-                    outputs = model(data)
-                    loss = outputs['total_loss']
-                    loss.backward()
 
-                    data_grad = img2.grad
-                    perturb_data = fgsm_attack(img2, 0.1, data_grad)
-                    outputs = tracker.track(perturb_data)
+                    nimg, sz, box = tracker.crop(img, bbox=gt_bbox_, im_name='exemplar')
+                    data['template'] = torch.autograd.Variable(nimg, requires_grad=True).cuda()
+                elif idx > frame_counter:
+
+                    cx, cy, w, h = get_axis_aligned_bbox(np.array(gt_bbox))
+                    gt_bbox_ = [cx - (w - 1) / 2, cy - (h - 1) / 2, w, h]
+                    nimg, sz, box = tracker.crop(img, bbox=gt_bbox_, is_template=False, im_name='search'+str(idx))
+                    sz = int(sz)
+                    data['search'] = torch.autograd.Variable(nimg, requires_grad=True).cuda()
+                    data['label_cls'] = torch.Tensor(cls_s).type(torch.LongTensor).cuda()
+                    data['label_loc'] = torch.Tensor(delta_cls_s).type(torch.LongTensor).cuda()
+                    data['label_loc_weight'] = torch.Tensor(delta_w_s).cuda()
+
+                    outputs = model(data)
+
+                    cls_loss = outputs['cls_loss']
+                    loc_loss = outputs['loc_loss']
+                    total_loss = outputs['total_loss']
+                    total_loss.backward()
+
+                    data_grad = data['search'].grad
+
+                    # torch.Tensor(img.transpose([2, 0, 1])).unsqueeze(dim=0)
+                    perturb_data = fgsm_attack(data['search']/255, 0.05, data_grad)*255
+                    img2 = img
+                    # cv2.imwrite('/media/wattanapongsu/3T/temp/save/original_' + str(idx) + '.jpg', img)
+
+                    _img = perturb_data.data.cpu().numpy().squeeze().transpose([1, 2, 0])
+                    # cv2.imwrite('/media/wattanapongsu/3T/temp/save/perturb_' + str(idx) + '.jpg', _img)
+
+                    if not np.array_equal(cfg.TRACK.INSTANCE_SIZE, sz):
+                        # perturb_data = cv2.resize(perturb_data, sz)
+                        perturb_data = F.interpolate(perturb_data, size=sz)
+
+                    _img = perturb_data.data.cpu().numpy().squeeze().transpose([1, 2, 0])
+                    img[box[0]:box[1]+1, box[2]:box[3]+1, :] = _img
+                    # cv2.imwrite('/media/wattanapongsu/3T/temp/save/perturb_full_' + str(idx) + '.jpg', img)
+
+                    outputs = tracker.track(img)
 
                     pred_bbox = outputs['bbox']
                     if cfg.MASK.MASK:
@@ -128,7 +174,9 @@ def main():
                         lost_number += 1
                 else:
                     pred_bboxes.append(0)
+
                 toc += cv2.getTickCount() - tic
+
                 if idx == 0:
                     cv2.destroyAllWindows()
                 if args.vis and idx > frame_counter:
@@ -145,6 +193,16 @@ def main():
                     cv2.putText(img, str(lost_number), (40, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                     cv2.imshow(video.name, img)
                     cv2.waitKey(1)
+
+                # save tracking image
+                bbox = list(map(int, pred_bbox))
+                cv2.rectangle(img, (bbox[0], bbox[1]),
+                              (bbox[0] + bbox[2], bbox[1] + bbox[3]), (0, 255, 255), 3)
+                cv2.putText(img, str(idx), (40, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+                cv2.putText(img, str(lost_number), (40, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                # cv2.imwrite('/media/wattanapongsu/3T/temp/save/track_' + str(idx) + '.jpg', img)
+                out.write(img)
+
             toc /= cv2.getTickFrequency()
             # save results
             video_path = os.path.join('results', args.dataset, model_name,

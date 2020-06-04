@@ -1,9 +1,3 @@
-# Copyright (c) SenseTime. All Rights Reserved.
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
 
 import json
 import logging
@@ -25,7 +19,6 @@ logger = logging.getLogger("global")
 pyv = sys.version[0]
 if pyv[0] == '3':
     cv2.ocl.setUseOpenCL(False)
-
 
 class SubDataset(object):
     def __init__(self, name, root, anno, frame_range, num_use, start_idx):
@@ -107,8 +100,6 @@ class SubDataset(object):
         image_anno = self.labels[video][track][frame]
         return image_path, image_anno
 
-    # track is tracking object in video
-    # video is one of subfolder under ILSVRC2015_VID_train_000{0-3}, for example, ILSVRC2015_train_00004000
     def get_positive_pair(self, index):
         video_name = self.videos[index]
         video = self.labels[video_name]
@@ -140,9 +131,9 @@ class SubDataset(object):
         return self.num
 
 
-class TrkDataset(Dataset):
-    def __init__(self,):
-        super(TrkDataset, self).__init__()
+class TDataset(Dataset):
+    def __init__(self, dataset):
+        super(TDataset, self).__init__()
 
         desired_size = (cfg.TRAIN.SEARCH_SIZE - cfg.TRAIN.EXEMPLAR_SIZE) / \
             cfg.ANCHOR.STRIDE + 1 + cfg.TRAIN.BASE_SIZE
@@ -156,8 +147,8 @@ class TrkDataset(Dataset):
         self.all_dataset = []
         start = 0
         self.num = 0
-        for name in cfg.DATASET.NAMES:
-            subdata_cfg = getattr(cfg.DATASET, name)
+        for name in dataset.NAMES:
+            subdata_cfg = getattr(dataset, name)
             sub_dataset = SubDataset(
                     name,
                     subdata_cfg.ROOT,

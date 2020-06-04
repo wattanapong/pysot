@@ -1,4 +1,4 @@
-from .vot import VOTDataset, VOTLTDataset
+from .votrpn import VOTDataset, VOTLTDataset
 from .otb import OTBDataset
 from .uav import UAVDataset
 from .lasot import LaSOTDataset
