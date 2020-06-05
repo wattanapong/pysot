@@ -137,7 +137,7 @@ def main():
                     sz = int(sz)
                     data['search'] = torch.autograd.Variable(nimg, requires_grad=True).cuda()
                     data['label_cls'] = torch.Tensor(cls_s).type(torch.LongTensor).cuda()
-                    data['label_loc'] = torch.Tensor(delta_cls_s).type(torch.LongTensor).cuda()
+                    data['label_loc'] = torch.Tensor(delta_cls_s).type(torch.FloatTensor).cuda()
                     data['label_loc_weight'] = torch.Tensor(delta_w_s).cuda()
 
                     outputs = model(data)
