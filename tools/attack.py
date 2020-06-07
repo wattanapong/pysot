@@ -127,13 +127,14 @@ def main():
                     pred_bbox = gt_bbox_
                     pred_bboxes.append(1)
 
-                    nimg, sz, box = tracker.crop(img, bbox=gt_bbox_, im_name='exemplar')
+                    nimg, sz, box, _ = tracker.crop(img, bbox=gt_bbox_, im_name='exemplar')
                     data['template'] = torch.autograd.Variable(nimg, requires_grad=True).cuda()
                 elif idx > frame_counter:
 
                     cx, cy, w, h = get_axis_aligned_bbox(np.array(gt_bbox))
                     gt_bbox_ = [cx - (w - 1) / 2, cy - (h - 1) / 2, w, h]
-                    nimg, sz, box = tracker.crop(img, bbox=gt_bbox_, is_template=False, im_name='search'+str(idx))
+                    nimg, sz, box, pad = tracker.crop(img, bbox=gt_bbox_, is_template=False, im_name='search'+str(idx))
+                    [bT, bB, bL, bR] = box
                     sz = int(sz)
                     data['search'] = torch.autograd.Variable(nimg, requires_grad=True).cuda()
                     data['label_cls'] = torch.Tensor(cls_s).type(torch.LongTensor).cuda()
@@ -151,18 +152,18 @@ def main():
 
                     # torch.Tensor(img.transpose([2, 0, 1])).unsqueeze(dim=0)
                     perturb_data = fgsm_attack(data['search']/255, epsilon, data_grad)*255
-                    img2 = img
                     # cv2.imwrite(os.path.join(args.savedir, 'original_' + str(idx) + '.jpg'), img)
 
-                    _img = perturb_data.data.cpu().numpy().squeeze().transpose([1, 2, 0])
+                    # _img = perturb_data.data.cpu().numpy().squeeze().transpose([1, 2, 0])
                     # cv2.imwrite(os.path.join(args.savedir, 'perturb_' + str(idx) + '.jpg'), _img)
 
                     if not np.array_equal(cfg.TRACK.INSTANCE_SIZE, sz):
-                        # perturb_data = cv2.resize(perturb_data, sz)
                         perturb_data = F.interpolate(perturb_data, size=sz)
 
                     _img = perturb_data.data.cpu().numpy().squeeze().transpose([1, 2, 0])
-                    img[box[0]:box[1]+1, box[2]:box[3]+1, :] = _img
+                    # cv2.imwrite(os.path.join(args.savedir, 'crop_full_' + str(idx) + '.jpg'), _img)
+                    nh, nw, _ = _img.shape
+                    img[bT:bB+1, bL:bR+1, :] = _img[pad[0]:nh - pad[1], pad[2]:nw - pad[3], :]
                     # cv2.imwrite(os.path.join(args.savedir, 'perturb_full_' + str(idx) + '.jpg'), img)
 
                     outputs = tracker.track(img)

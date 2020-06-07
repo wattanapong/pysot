@@ -95,13 +95,28 @@ class SiamRPNAttackTracker(SiameseTracker):
             limit_size = cfg.TRACK.INSTANCE_SIZE
 
         # get crop
-        _crop, box = self.get_subwindow_custom(img, self.center_pos, limit_size, sz, self.channel_average)
+        # box = {top, bottom, left, right}
+        # pad = {pad top, pad bottom, pad left, pad pad right}
+        h, w, _ = img.shape
+        _crop, box, pad = self.get_subwindow_custom(img, self.center_pos, limit_size, sz, self.channel_average)
+        # pad_h = pad[0] + pad[1]
+        # pad_w = pad[2] + pad[3]
+        # box = box[0] - pad[0], box[1] - pad[1] + 1, box[2] - pad[2], box[3] - pad[3] + 1
+        box[0] = box[0] - pad[0]
+        box[1] = box[1] - pad[0]
+        box[2] = box[2] - pad[2]
+        box[3] = box[3] - pad[2]
 
-        if im_name is not None:
-            _img = _crop.data.cpu().numpy().squeeze().transpose([1, 2, 0])
-            # cv2.imwrite('/media/wattanapongsu/3T/temp/save/' + im_name+'.jpg', _img)
+        box[0] = 0 if box[0] < 0 else box[0]
+        box[2] = 0 if box[2] < 0 else box[2]
+        box[1] = h-1 if box[1] > h else box[1]
+        box[3] = w-1 if box[3] > w else box[3]
 
-        return _crop, sz, box
+        # if im_name is not None:
+        #     _img = _crop.data.cpu().numpy().squeeze().transpose([1, 2, 0])
+        # cv2.imwrite('/media/wattanapongsu/3T/temp/save/' + im_name+'.jpg', _img)
+
+        return _crop, sz, box, pad
 
     def init(self, img, bbox):
         """
@@ -126,7 +141,7 @@ class SiamRPNAttackTracker(SiameseTracker):
         self.channel_average = np.mean(img, axis=(0, 1))
 
         # get crop
-        z_crop, _ = self.get_subwindow_custom(img, self.center_pos,
+        z_crop, _, _ = self.get_subwindow_custom(img, self.center_pos,
                                     cfg.TRACK.EXEMPLAR_SIZE,
                                     s_z, self.channel_average)
         self.model.template(z_crop)
@@ -259,4 +274,5 @@ class SiamRPNAttackTracker(SiameseTracker):
         im_patch = torch.from_numpy(im_patch)
         if cfg.CUDA:
             im_patch = im_patch.cuda()
-        return im_patch, [int(context_ymin), int(context_ymax), int(context_xmin), int(context_xmax)]
+        return im_patch, [int(context_ymin), int(context_ymax), int(context_xmin), int(context_xmax)], \
+            [top_pad, bottom_pad, left_pad, right_pad]
