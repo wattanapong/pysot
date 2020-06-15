@@ -25,6 +25,9 @@ from pysot.utils.model_load import load_pretrain
 from toolkit.datasets import DatasetFactory
 from toolkit.utils.region import vot_overlap, vot_float2str
 
+from pysot.models.steath import Steath
+import torch.optim as optim
+
 logger = logging.getLogger('global')
 
 parser = argparse.ArgumentParser(description='siamrpn tracking')
@@ -55,11 +58,10 @@ def fgsm_attack(image, epsilon, data_grad):
     sign_data_grad = data_grad.sign()
 
     # Create the perturbed image by adjusting each pixel of the input image
-    perturbed_image = image/255 + epsilon * sign_data_grad
+    perturbed_image = image + epsilon * sign_data_grad
     # Adding clipping to maintain [0,1] range
 
-    perturbed_image = 255*torch.clamp(perturbed_image, 0, 1)
-
+    perturbed_image = torch.clamp(perturbed_image, 0, 1)
     # Return the perturbed image
     return perturbed_image
 
@@ -73,10 +75,15 @@ def main():
     epsilon = args.epsilon
 
     # create model
-    model = ModelBuilder()
+    model = Steath([1, 3, 255, 255])
+    lr = 1e-3
 
     # load model
     model = load_pretrain(model, args.snapshot).cuda().train()
+    optimizer = optim.SGD(model.parameters(), lr=lr)
+    # model.backbone.eval()
+    # model.neck.eval()
+    # model.rpn_head()
 
     # build tracker
     tracker = build_tracker(model)
@@ -93,6 +100,7 @@ def main():
 
     model_name = args.snapshot.split('/')[-1].split('.')[0]
     total_lost = 0
+    n_epochs = 10
 
     if args.dataset in ['VOT2016', 'VOT2018', 'VOT2019']:
 
@@ -142,18 +150,20 @@ def main():
                     data['label_loc'] = torch.Tensor(delta_cls_s).type(torch.FloatTensor).cuda()
                     data['label_loc_weight'] = torch.Tensor(delta_w_s).cuda()
 
-                    outputs = model(data)
+                    for epoch in range(n_epochs):
+                        outputs = model(data, epsilon)
+                        cls_loss = outputs['cls_loss']
+                        # loc_loss = outputs['loc_loss']
+                        # total_loss = outputs['total_loss']
+                        print(epoch, cls_loss)
+                        optimizer.zero_grad()
+                        cls_loss.backward()
+                        optimizer.step()
 
-                    cls_loss = outputs['cls_loss']
-                    loc_loss = outputs['loc_loss']
-                    total_loss = outputs['total_loss']
-                    total_loss.backward()
+                    # print(epoch, cls_loss, loc_loss, total_loss)
+                    print(epoch, cls_loss)
+                    perturb_data = outputs['search']
 
-                    data_grad = data['search'].grad
-
-                    # torch.Tensor(img.transpose([2, 0, 1])).unsqueeze(dim=0)
-
-                    perturb_data = fgsm_attack(data['search'], epsilon, data_grad)
                     # cv2.imwrite(os.path.join(args.savedir, 'original_' + str(idx) + '.jpg'), img)
 
                     # _img = perturb_data.data.cpu().numpy().squeeze().transpose([1, 2, 0])
@@ -178,41 +188,21 @@ def main():
                         # not lost
                         pred_bboxes.append(pred_bbox)
                     else:
-                        print('*************** lost ***************')
-                        import pdb
-                        pdb.set_trace()
                         # lost object
                         pred_bboxes.append(2)
                         frame_counter = idx + 5 # skip 5 frames
                         lost_number += 1
-
-                    print(idx, torch.sum(data_grad, (2, 3)))
-                    print(idx, torch.sum(torch.abs(torch.sum(data_grad, (2, 3))), (0, 1)))
-
                 else:
                     pred_bboxes.append(0)
 
                 toc += cv2.getTickCount() - tic
 
-                if idx == 0:
-                    cv2.destroyAllWindows()
-                if args.vis and idx > frame_counter:
-                    cv2.polylines(img, [np.array(gt_bbox, np.int).reshape((-1, 1, 2))],
-                            True, (0, 255, 0), 3)
-                    if cfg.MASK.MASK:
-                        cv2.polylines(img, [np.array(pred_bbox, np.int).reshape((-1, 1, 2))],
-                                True, (0, 255, 255), 3)
-                    else:
-                        bbox = list(map(int, pred_bbox))
-                        cv2.rectangle(img, (bbox[0], bbox[1]),
-                                      (bbox[0]+bbox[2], bbox[1]+bbox[3]), (0, 255, 255), 3)
-                    cv2.putText(img, str(idx), (40, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
-                    cv2.putText(img, str(lost_number), (40, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                    cv2.imshow(video.name, img)
-                    cv2.waitKey(1)
+                # write ground truth bbox
+                cv2.polylines(img, [np.array(gt_bbox, np.int).reshape((-1, 1, 2))],
+                              True, (255, 255, 255), 3)
 
-                # save tracking image
                 bbox = list(map(int, pred_bbox))
+
                 cv2.rectangle(img, (bbox[0], bbox[1]),
                               (bbox[0] + bbox[2], bbox[1] + bbox[3]), (0, 255, 255), 3)
                 cv2.putText(img, str(idx), (40, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
