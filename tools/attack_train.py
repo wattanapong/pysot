@@ -46,11 +46,15 @@ parser.add_argument('--video', default='', type=str,
         help='eval one special video')
 parser.add_argument('--epsilon', default='0.1', type=float,
         help='fgsm epsilon')
+parser.add_argument('--lr', default='1e-4', type=float,
+        help='learning rate')
+parser.add_argument('--epochs', default='10', type=int,
+        help='number of epochs')
 parser.add_argument('--vis', action='store_true',
         help='whether visualize result')
 args = parser.parse_args()
 
-torch.set_num_threads(1)
+torch.set_num_threads(6)
 
 # FGSM attack code
 def fgsm_attack(image, epsilon, data_grad):
@@ -76,7 +80,7 @@ def main():
 
     # create model
     model = Steath([1, 3, 255, 255])
-    lr = 1e-3
+    lr = args.lr
 
     # load model
     model = load_pretrain(model, args.snapshot).cuda().train()
@@ -100,7 +104,7 @@ def main():
 
     model_name = args.snapshot.split('/')[-1].split('.')[0]
     total_lost = 0
-    n_epochs = 10
+    n_epochs = args.epochs
 
     if args.dataset in ['VOT2016', 'VOT2018', 'VOT2019']:
 
@@ -155,7 +159,6 @@ def main():
                         cls_loss = outputs['cls_loss']
                         # loc_loss = outputs['loc_loss']
                         # total_loss = outputs['total_loss']
-                        print(epoch, cls_loss)
                         optimizer.zero_grad()
                         cls_loss.backward()
                         optimizer.step()
