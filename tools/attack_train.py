@@ -164,7 +164,7 @@ def main():
                         optimizer.step()
 
                     # print(epoch, cls_loss, loc_loss, total_loss)
-                    print(epoch, cls_loss)
+                    print('{}/{} cls={}'.format(idx, len(video), cls_loss.item()))
                     perturb_data = outputs['search']
 
                     # cv2.imwrite(os.path.join(args.savedir, 'original_' + str(idx) + '.jpg'), img)
