@@ -48,7 +48,7 @@ parser.add_argument('--epsilon', default='0.1', type=float,
         help='fgsm epsilon')
 parser.add_argument('--lr', default='1e-4', type=float,
         help='learning rate')
-parser.add_argument('--epochs', default='10', type=int,
+parser.add_argument('--epochs', default='20', type=int,
         help='number of epochs')
 parser.add_argument('--vis', action='store_true',
         help='whether visualize result')
@@ -80,17 +80,19 @@ def main():
 
     # create model
     model = Steath([1, 3, 255, 255])
+    track_model = ModelBuilder()
     lr = args.lr
 
     # load model
     model = load_pretrain(model, args.snapshot).cuda().train()
+    track_model = load_pretrain(track_model, args.snapshot).cuda().eval()
     optimizer = optim.SGD(model.parameters(), lr=lr)
-    # model.backbone.eval()
-    # model.neck.eval()
-    # model.rpn_head()
+    model.backbone.eval()
+    model.neck.eval()
+    model.rpn_head.eval()
 
     # build tracker
-    tracker = build_tracker(model)
+    tracker = build_tracker(track_model)
 
     # create dataset
     dataset = DatasetFactory.create_dataset(name=args.dataset,
@@ -159,6 +161,7 @@ def main():
                         cls_loss = outputs['cls_loss']
                         # loc_loss = outputs['loc_loss']
                         # total_loss = outputs['total_loss']
+                        print(epoch, cls_loss.item())
                         optimizer.zero_grad()
                         cls_loss.backward()
                         optimizer.step()
