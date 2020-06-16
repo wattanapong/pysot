@@ -25,7 +25,7 @@ from pysot.utils.model_load import load_pretrain
 from toolkit.datasets import DatasetFactory
 from toolkit.utils.region import vot_overlap, vot_float2str
 
-from pysot.models.steath import Steath
+from pysot.models.steath import Steath, WeightClipper
 import torch.optim as optim
 
 logger = logging.getLogger('global')
@@ -48,7 +48,7 @@ parser.add_argument('--epsilon', default='0.1', type=float,
         help='fgsm epsilon')
 parser.add_argument('--lr', default='1e-4', type=float,
         help='learning rate')
-parser.add_argument('--epochs', default='20', type=int,
+parser.add_argument('--epochs', default='2 0', type=int,
         help='number of epochs')
 parser.add_argument('--vis', action='store_true',
         help='whether visualize result')
@@ -90,6 +90,7 @@ def main():
     model.backbone.eval()
     model.neck.eval()
     model.rpn_head.eval()
+    # clipper = WeightClipper(50)
 
     # build tracker
     tracker = build_tracker(track_model)
@@ -116,6 +117,9 @@ def main():
                 # test one special video
                 if video.name != args.video:
                     continue
+                else:
+                    if not os.path.exists(os.path.join(args.savedir, video.name)):
+                        os.mkdir(os.path.join(args.savedir, video.name))
 
             # set writing video parameters
             height, width, channels = video[0][0].shape
@@ -145,7 +149,7 @@ def main():
                     nimg, sz, box, _ = tracker.crop(img, bbox=gt_bbox_, im_name='exemplar')
                     data['template'] = torch.autograd.Variable(nimg, requires_grad=True).cuda()
                 elif idx > frame_counter:
-
+                    prim_img = img
                     cx, cy, w, h = get_axis_aligned_bbox(np.array(gt_bbox))
                     gt_bbox_ = [cx - (w - 1) / 2, cy - (h - 1) / 2, w, h]
                     nimg, sz, box, pad = tracker.crop(img, bbox=gt_bbox_, is_template=False, im_name='search'+str(idx))
@@ -161,9 +165,10 @@ def main():
                         cls_loss = outputs['cls_loss']
                         # loc_loss = outputs['loc_loss']
                         # total_loss = outputs['total_loss']
-                        print(epoch, cls_loss.item())
+                        # print(epoch, cls_loss.item())
                         optimizer.zero_grad()
                         cls_loss.backward()
+                        # model.apply(clipper)
                         optimizer.step()
 
                     # print(epoch, cls_loss, loc_loss, total_loss)
@@ -182,11 +187,14 @@ def main():
                     # cv2.imwrite(os.path.join(args.savedir, 'crop_full_' + str(idx) + '.jpg'), _img)
                     nh, nw, _ = _img.shape
                     img[bT:bB+1, bL:bR+1, :] = _img[pad[0]:nh - pad[1], pad[2]:nw - pad[3], :]
-                    # cv2.imwrite(os.path.join(args.savedir, 'perturb_full_' + str(idx) + '.jpg'), img)
+                    # cv2.imwrite(os.path.join(args.savedir,'jpg', 'perturb_full_' + str(idx) + '.jpg'), img)
 
                     outputs = tracker.track(img)
+                    prim_outputs = tracker.track(prim_img)
 
                     pred_bbox = outputs['bbox']
+                    prim_box = prim_outputs['bbox']
+
                     if cfg.MASK.MASK:
                         pred_bbox = outputs['polygon']
                     overlap = vot_overlap(pred_bbox, gt_bbox, (img.shape[1], img.shape[0]))
@@ -201,16 +209,24 @@ def main():
                 else:
                     pred_bboxes.append(0)
 
+                cv2.imwrite(os.path.join(args.savedir, video.name, str(idx).zfill(7) + '.jpg'), img)
+
                 toc += cv2.getTickCount() - tic
 
                 # write ground truth bbox
                 cv2.polylines(img, [np.array(gt_bbox, np.int).reshape((-1, 1, 2))],
                               True, (255, 255, 255), 3)
 
-                bbox = list(map(int, pred_bbox))
+                if idx != frame_counter:
+                    bbox = list(map(int, pred_bbox))
+                    prim_bbox = list(map(int, prim_box))
 
-                cv2.rectangle(img, (bbox[0], bbox[1]),
-                              (bbox[0] + bbox[2], bbox[1] + bbox[3]), (0, 255, 255), 3)
+                    cv2.rectangle(img, (bbox[0], bbox[1]),
+                                  (bbox[0] + bbox[2], bbox[1] + bbox[3]), (0, 255, 255), 3)
+
+                    cv2.rectangle(img, (prim_bbox[0], prim_bbox[1]),
+                                  (prim_bbox[0] + prim_bbox[2], prim_bbox[1] + prim_bbox[3]), (0, 0, 255), 3)
+
                 cv2.putText(img, str(idx), (40, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
                 cv2.putText(img, str(lost_number), (40, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                 # cv2.imwrite(os.path.join(args.savedir, 'track_' + str(idx) + '.jpg'), img)

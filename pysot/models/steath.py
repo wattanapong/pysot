@@ -27,7 +27,8 @@ class Steath(ModelBuilder):
         # get feature
         zf = self.backbone(template)
 
-        search = search + 255*epsilon*self.dx
+        search = search + 255 * epsilon * self.dx
+
         xf = self.backbone(search)
 
         if cfg.ADJUST.ADJUST:
@@ -49,3 +50,14 @@ class Steath(ModelBuilder):
 
         return outputs
 
+
+class WeightClipper(object):
+
+    def __init__(self, limit=5):
+        self.limit = limit
+
+    def __call__(self, module):
+        # filter the variables to get the ones you want
+        if hasattr(module, 'weight'):
+            w = module.weight.data
+            w = w.clamp(-self.limit, self.limit)
