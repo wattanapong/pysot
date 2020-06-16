@@ -130,7 +130,7 @@ def main():
             toc = 0
             pred_bboxes = []
             data = {'template': None, 'search': None}
-            for idx, (img, gt_bbox, cls, delta_cls, delta_w, _bbox, cls_s, delta_cls_s, delta_w_s, _bbox_s) \
+            for idx, (img, gt_bbox, cls_s, delta_cls_s, delta_w_s, bbox_p) \
                     in enumerate(video):
                 if len(gt_bbox) == 4:
                     gt_bbox = [gt_bbox[0], gt_bbox[1],
@@ -163,8 +163,8 @@ def main():
                     for epoch in range(n_epochs):
                         outputs = model(data, epsilon)
                         cls_loss = outputs['cls_loss']
-                        # loc_loss = outputs['loc_loss']
-                        # total_loss = outputs['total_loss']
+                        loc_loss = outputs['loc_loss']
+                        total_loss = outputs['total_loss']
                         # print(epoch, cls_loss.item())
                         optimizer.zero_grad()
                         cls_loss.backward()
@@ -172,7 +172,8 @@ def main():
                         optimizer.step()
 
                     # print(epoch, cls_loss, loc_loss, total_loss)
-                    print('{}/{} cls={}'.format(idx, len(video), cls_loss.item()))
+                    print('{}/{} cls={}, loc={}, total={}'.format(idx, len(video), cls_loss.item(), loc_loss.item(),
+                                                                  total_loss.item()))
                     perturb_data = outputs['search']
 
                     # cv2.imwrite(os.path.join(args.savedir, 'original_' + str(idx) + '.jpg'), img)
@@ -226,6 +227,9 @@ def main():
 
                     cv2.rectangle(img, (prim_bbox[0], prim_bbox[1]),
                                   (prim_bbox[0] + prim_bbox[2], prim_bbox[1] + prim_bbox[3]), (0, 0, 255), 3)
+
+                    bbox_p = np.array(bbox_p).astype(int)
+                    cv2.rectangle(img, (bbox_p[0], bbox_p[1]), (bbox_p[2], bbox_p[3]), (0, 0, 0), 3)
 
                 cv2.putText(img, str(idx), (40, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
                 cv2.putText(img, str(lost_number), (40, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
