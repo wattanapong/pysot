@@ -27,7 +27,7 @@ class Steath(ModelBuilder):
         # get feature
         zf = self.backbone(template)
 
-        search = search + 255 * epsilon * self.dx
+        search = search + self.dx
 
         xf = self.backbone(search)
 
@@ -38,9 +38,10 @@ class Steath(ModelBuilder):
 
         # get loss
         cls = self.log_softmax(cls)
-        cls_loss = select_cross_entropy_loss(cls, -label_cls)
+        cls_loss = select_cross_entropy_loss(cls, label_cls)
         loc_loss = weight_l1_loss(loc, label_loc, label_loc_weight)
-
+        # import pdb
+        # pdb.set_trace()
         outputs = {}
         outputs['search'] = search
         outputs['total_loss'] = cfg.TRAIN.CLS_WEIGHT * cls_loss + \

@@ -115,27 +115,33 @@ class Video(object):
 
         return img, self.gt_traj[idx]
 
-    def perturb(self, bbox):
+    def perturb(self, bbox, sz):
         # cx, cy, w, h = get_axis_aligned_bbox(np.array(bbox))
+        sz = 255
         cx = np.abs(bbox.x1 - bbox.x2) / 2
         cy = np.abs(bbox.y1 - bbox.y2) / 2
         w = np.abs(bbox.x1 + bbox.x2) / 2
         h = np.abs(bbox.y1 + bbox.y2) / 2
 
-        w = (255 - w)/2
-        h = (255 - h)/2
-
-        cx = 255 - cx
-        cy = 255 - cy
-
-        rx, ry = np.random.random(size=2)
-
-        if 255/4 < cx < 3*255/4 and rx > 0.5:
-            cx = 255 - cx
-        if 255/4 < cy < 3*255/4 and ry > 0.5:
-            cy = 255 - cy
+        # w = np.abs(sz - w)/2
+        # h = np.abs(sz - h)/2
+        #
+        # cx = np.abs(sz - cx)
+        # cy = np.abs(sz - cy)
+        #
+        # rx, ry = np.random.random(size=2)
+        #
+        # if sz/4 < cx < 3*sz/4 and rx > 0.5:
+        #     cx = sz - cx
+        # if sz/4 < cy < 3*sz/4 and ry > 0.5:
+        #     cy = sz - cy
 
         # bbox = [cx-w/2, cy-y/2, cx-w/2, cy+y/2, cx+w/2, cy-y/2, cx+w/2, cy+y/2]
+
+        w = 3*255/2
+        h = 3*255/4
+        cx = w/2
+        cy = h/2
         bbox = np.array([cx, cy, w, h])
         return center2corner(bbox)
 
@@ -171,7 +177,7 @@ class Video(object):
             #     bbox_s, self.config.TRAIN.OUTPUT_SIZE)
             # cls_s, delta_s, delta_weight_s, overlap_s = self.anchor_target(
             #     bbox_s, self.config.TRAIN.OUTPUT_SIZE)
-            bbox_perturb = self.perturb(bbox_s)
+            bbox_perturb = self.perturb(bbox_s, self.config.TRAIN.OUTPUT_SIZE)
             cls_s, delta_s, delta_weight_s, overlap_s = self.anchor_target(
                 bbox_perturb, self.config.TRAIN.OUTPUT_SIZE)
 

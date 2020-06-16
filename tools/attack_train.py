@@ -90,7 +90,7 @@ def main():
     model.backbone.eval()
     model.neck.eval()
     model.rpn_head.eval()
-    # clipper = WeightClipper(50)
+    clipper = WeightClipper(100)
 
     # build tracker
     tracker = build_tracker(track_model)
@@ -166,14 +166,17 @@ def main():
                         loc_loss = outputs['loc_loss']
                         total_loss = outputs['total_loss']
                         # print(epoch, cls_loss.item())
+                        print('{}/{} cls={}, loc={}, total={}'.format(idx, len(video), cls_loss.item(), loc_loss.item(),
+                                                                      total_loss.item()))
+
                         optimizer.zero_grad()
                         total_loss.backward()
-                        # model.apply(clipper)
+                        model.apply(clipper)
                         optimizer.step()
 
                     # print(epoch, cls_loss, loc_loss, total_loss)
-                    print('{}/{} cls={}, loc={}, total={}'.format(idx, len(video), cls_loss.item(), loc_loss.item(),
-                                                                  total_loss.item()))
+                    # print('{}/{} cls={}, loc={}, total={}'.format(idx, len(video), cls_loss.item(), loc_loss.item(),
+                    #                                               total_loss.item()))
                     perturb_data = outputs['search']
 
                     # cv2.imwrite(os.path.join(args.savedir, 'original_' + str(idx) + '.jpg'), img)
@@ -210,7 +213,7 @@ def main():
                 else:
                     pred_bboxes.append(0)
 
-                cv2.imwrite(os.path.join(args.savedir, video.name, str(idx).zfill(7) + '.jpg'), img)
+                # cv2.imwrite(os.path.join(args.savedir, video.name, str(idx).zfill(7) + '.jpg'), img)
 
                 toc += cv2.getTickCount() - tic
 
@@ -235,6 +238,7 @@ def main():
                 cv2.putText(img, str(lost_number), (40, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                 # cv2.imwrite(os.path.join(args.savedir, 'track_' + str(idx) + '.jpg'), img)
                 out.write(img)
+                cv2.imwrite(os.path.join(args.savedir, video.name, str(idx).zfill(7) + '.jpg'), img)
 
             toc /= cv2.getTickFrequency()
             # save results
