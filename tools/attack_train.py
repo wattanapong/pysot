@@ -167,7 +167,7 @@ def main():
                         total_loss = outputs['total_loss']
                         # print(epoch, cls_loss.item())
                         optimizer.zero_grad()
-                        cls_loss.backward()
+                        total_loss.backward()
                         # model.apply(clipper)
                         optimizer.step()
 
