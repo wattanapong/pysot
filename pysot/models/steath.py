@@ -10,10 +10,6 @@ class Steath(ModelBuilder):
     def __init__(self, dim):
         super(Steath, self).__init__()
         self.dx = nn.Parameter(torch.rand(dim, requires_grad=True, dtype=torch.float))
-        self.backbone.eval()
-        if cfg.ADJUST.ADJUST:
-            self.neck.eval()
-        self.rpn_head.eval()
 
     def forward(self, data, epsilon):
         """ only used in training
@@ -39,7 +35,7 @@ class Steath(ModelBuilder):
         # get loss
         cls = self.log_softmax(cls)
         cls_loss = select_cross_entropy_loss(cls, label_cls)
-        loc_loss = weight_l1_loss(loc, label_loc, label_loc_weight)
+        loc_loss = weight_l1_loss(loc, -label_loc, label_loc_weight)
         # import pdb
         # pdb.set_trace()
         outputs = {}

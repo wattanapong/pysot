@@ -69,6 +69,11 @@ def fgsm_attack(image, epsilon, data_grad):
     # Return the perturbed image
     return perturbed_image
 
+def BNtoFixed(m):
+    class_name = m.__class__.__name__
+    if class_name.find('BatchNorm') != -1:
+        m.eval()
+
 def main():
     # load config
     cfg.merge_from_file(args.config)
@@ -87,9 +92,12 @@ def main():
     model = load_pretrain(model, args.snapshot).cuda().train()
     track_model = load_pretrain(track_model, args.snapshot).cuda().eval()
     optimizer = optim.SGD(model.parameters(), lr=lr)
+    # model.dx.requires_grad_(False)
     model.backbone.eval()
-    model.neck.eval()
+    if cfg.ADJUST.ADJUST:
+        model.neck.eval()
     model.rpn_head.eval()
+
     clipper = WeightClipper(100)
 
     # build tracker
@@ -130,35 +138,36 @@ def main():
             toc = 0
             pred_bboxes = []
             data = {'template': None, 'search': None}
-            for idx, (img, gt_bbox, cls_s, delta_cls_s, delta_w_s, bbox_p) \
-                    in enumerate(video):
+            for idx, (img, gt_bbox, z, x, szx, boxx, padx, cls, delta, delta_w, overlap, _bbox, _bbox_p) in enumerate(video):
+
                 if len(gt_bbox) == 4:
                     gt_bbox = [gt_bbox[0], gt_bbox[1],
                        gt_bbox[0], gt_bbox[1]+gt_bbox[3]-1,
                        gt_bbox[0]+gt_bbox[2]-1, gt_bbox[1]+gt_bbox[3]-1,
                        gt_bbox[0]+gt_bbox[2]-1, gt_bbox[1]]
-                tic = cv2.getTickCount()
-                if idx == frame_counter:
-                    cx, cy, w, h = get_axis_aligned_bbox(np.array(gt_bbox))
 
-                    gt_bbox_ = [cx-(w-1)/2, cy-(h-1)/2, w, h]
+                tic = cv2.getTickCount()
+
+                cx, cy, w, h = get_axis_aligned_bbox(np.array(gt_bbox))
+                gt_bbox_ = [cx-w//2, cy-h//2, w, h]
+
+                if idx == frame_counter:
                     tracker.init(img, gt_bbox_)
                     pred_bbox = gt_bbox_
                     pred_bboxes.append(1)
 
-                    nimg, sz, box, _ = tracker.crop(img, bbox=gt_bbox_, im_name='exemplar')
-                    data['template'] = torch.autograd.Variable(nimg, requires_grad=True).cuda()
+                    data['template'] = torch.autograd.Variable(z, requires_grad=True).cuda()
+
                 elif idx > frame_counter:
                     prim_img = img
-                    cx, cy, w, h = get_axis_aligned_bbox(np.array(gt_bbox))
-                    gt_bbox_ = [cx - (w - 1) / 2, cy - (h - 1) / 2, w, h]
-                    nimg, sz, box, pad = tracker.crop(img, bbox=gt_bbox_, is_template=False, im_name='search'+str(idx))
+                    nimg, sz, box, pad = tracker.crop(img, bbox=gt_bbox_, im_name='search'+str(idx))
                     [bT, bB, bL, bR] = box
                     sz = int(sz)
-                    data['search'] = torch.autograd.Variable(nimg, requires_grad=True).cuda()
-                    data['label_cls'] = torch.Tensor(cls_s).type(torch.LongTensor).cuda()
-                    data['label_loc'] = torch.Tensor(delta_cls_s).type(torch.FloatTensor).cuda()
-                    data['label_loc_weight'] = torch.Tensor(delta_w_s).cuda()
+
+                    data['search'] = torch.autograd.Variable(x, requires_grad=True).cuda()
+                    data['label_cls'] = torch.Tensor(cls).type(torch.LongTensor).cuda()
+                    data['label_loc'] = torch.Tensor(delta).type(torch.FloatTensor).cuda()
+                    data['label_loc_weight'] = torch.Tensor(delta_w).cuda()
 
                     for epoch in range(n_epochs):
                         outputs = model(data, epsilon)
@@ -179,19 +188,47 @@ def main():
                     #                                               total_loss.item()))
                     perturb_data = outputs['search']
 
-                    # cv2.imwrite(os.path.join(args.savedir, 'original_' + str(idx) + '.jpg'), img)
+                    # cv2.rectangle(img, (int(cx-w/2+1), int(cy-h/2+1)), (int(cx+w/2+1), int(cy+h/2+1)), (0, 0, 0), 3)
+                    # cv2.imwrite(os.path.join(args.savedir, video.name, 'original_' + str(idx).zfill(7) + '.jpg'), img)
 
                     # _img = perturb_data.data.cpu().numpy().squeeze().transpose([1, 2, 0])
                     # cv2.imwrite(os.path.join(args.savedir, 'perturb_' + str(idx) + '.jpg'), _img)
 
-                    if not np.array_equal(cfg.TRACK.INSTANCE_SIZE, sz):
-                        perturb_data = F.interpolate(perturb_data, size=sz)
+                    [bT, bB, bL, bR] = _bbox
+                    szx = int(szx)
 
-                    _img = perturb_data.data.cpu().numpy().squeeze().transpose([1, 2, 0])
-                    # cv2.imwrite(os.path.join(args.savedir, 'crop_full_' + str(idx) + '.jpg'), _img)
+                    if not np.array_equal(cfg.TRACK.INSTANCE_SIZE, szx):
+                        perturb_data = F.interpolate(perturb_data, size=szx)
+                        __bbox = (np.array(_bbox)*szx/cfg.TRACK.INSTANCE_SIZE).astype(np.int)
+
+                    _img = cv2.UMat(perturb_data.data.cpu().numpy().squeeze().transpose([1, 2, 0])).get()
+                    cv2.rectangle(_img, (__bbox[0], __bbox[1]), (__bbox[2], __bbox[3]), (0, 0, 0), 3)
+                    cv2.imwrite(os.path.join(args.savedir, video.name, 'crop_full_' + str(idx) + '.jpg'), _img)
+
                     nh, nw, _ = _img.shape
-                    img[bT:bB+1, bL:bR+1, :] = _img[pad[0]:nh - pad[1], pad[2]:nw - pad[3], :]
-                    # cv2.imwrite(os.path.join(args.savedir,'jpg', 'perturb_full_' + str(idx) + '.jpg'), img)
+
+                    __bbox0 = np.zeros_like(__bbox)
+                    __bbox0[:4:2] = __bbox[:4:2] - padx[0]
+                    __bbox0[1:4:2] = __bbox[1:4:2] - padx[2]
+
+                    img[boxx[0]:boxx[1] + 1, boxx[2]:boxx[3] + 1, :] = \
+                        _img[boxx[0]+padx[0]:boxx[1]+padx[0] + 1, 0 + padx[2]:boxx[3] - boxx[2] + padx[2] + 1, :]
+                    # cv2.imwrite(os.path.join(args.savedir, video.name, 'perturb_full_' + str(idx) + '.jpg'), img)
+
+                    import pdb
+                    pdb.set_trace()
+
+                    # if not np.array_equal(cfg.TRACK.INSTANCE_SIZE, sz):
+                    #     perturb_data = F.interpolate(perturb_data, size=sz)
+                    #     __bbox = (np.array(_bbox)*sz/cfg.TRACK.INSTANCE_SIZE).astype(np.uint8)
+                    #
+                    # _img = cv2.UMat(perturb_data.data.cpu().numpy().squeeze().transpose([1, 2, 0])).get()
+                    # cv2.rectangle(_img, (__bbox[0], __bbox[1]), (__bbox[2], __bbox[3]), (0, 0, 0), 3)
+                    # cv2.imwrite(os.path.join(args.savedir, video.name, 'crop_full_' + str(idx) + '.jpg'), _img)
+                    #
+                    # nh, nw, _ = _img.shape
+                    # img[bT:bB+1, bL:bR+1, :] = _img[pad[0]:nh - pad[1], pad[2]:nw - pad[3], :]
+                    # cv2.imwrite(os.path.join(args.savedir, video.name, 'perturb_full_' + str(idx) + '.jpg'), img)
 
                     outputs = tracker.track(img)
                     prim_outputs = tracker.track(prim_img)
@@ -231,14 +268,15 @@ def main():
                     cv2.rectangle(img, (prim_bbox[0], prim_bbox[1]),
                                   (prim_bbox[0] + prim_bbox[2], prim_bbox[1] + prim_bbox[3]), (0, 0, 255), 3)
 
-                    bbox_p = np.array(bbox_p).astype(int)
-                    cv2.rectangle(img, (bbox_p[0], bbox_p[1]), (bbox_p[2], bbox_p[3]), (0, 0, 0), 3)
 
                 cv2.putText(img, str(idx), (40, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
                 cv2.putText(img, str(lost_number), (40, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                # cv2.imwrite(os.path.join(args.savedir, 'track_' + str(idx) + '.jpg'), img)
+
                 out.write(img)
                 cv2.imwrite(os.path.join(args.savedir, video.name, str(idx).zfill(7) + '.jpg'), img)
+
+                import pdb
+                pdb.set_trace()
 
             toc /= cv2.getTickFrequency()
             # save results

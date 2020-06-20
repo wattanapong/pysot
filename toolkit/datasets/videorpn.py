@@ -21,6 +21,8 @@ class Video(object):
         self.img_names = [os.path.join(root, x.replace('color/','')) for x in img_names]
         self.imgs = None
         self.config = config
+        self.size = None
+        self.center_pos = None
 
         self.template_aug = Augmentation(
             config.DATASET.TEMPLATE.SHIFT,
@@ -88,10 +90,13 @@ class Video(object):
 
     def _get_bbox(self, image, shape):
         imh, imw = image.shape[:2]
+        cx, cy = imw // 2, imh // 2
+
         if len(shape) == 4:
             w, h = shape[2]-shape[0], shape[3]-shape[1]
         else:
             w, h = shape
+
         context_amount = 0.5
         exemplar_size = self.config.TRAIN.EXEMPLAR_SIZE
         wc_z = w + context_amount * (w+h)
@@ -100,7 +105,7 @@ class Video(object):
         scale_z = exemplar_size / s_z
         w = w*scale_z
         h = h*scale_z
-        cx, cy = imw//2, imh//2
+
         bbox = center2corner(Center(cx, cy, w, h))
         return bbox
 
@@ -117,15 +122,15 @@ class Video(object):
 
     def perturb(self, bbox, sz):
         # cx, cy, w, h = get_axis_aligned_bbox(np.array(bbox))
-        sz = 255
-        cx = np.abs(bbox.x1 - bbox.x2) / 2
-        cy = np.abs(bbox.y1 - bbox.y2) / 2
-        w = np.abs(bbox.x1 + bbox.x2) / 2
-        h = np.abs(bbox.y1 + bbox.y2) / 2
+
+        cx = (bbox.x1 + bbox.x2)/2
+        cy = (bbox.y1 + bbox.y2)/2
+        w = np.abs(bbox.x1 - bbox.x2)
+        h = np.abs(bbox.y1 - bbox.y2)
 
         # w = np.abs(sz - w)/2
         # h = np.abs(sz - h)/2
-        #
+
         # cx = np.abs(sz - cx)
         # cy = np.abs(sz - cy)
         #
@@ -138,12 +143,112 @@ class Video(object):
 
         # bbox = [cx-w/2, cy-y/2, cx-w/2, cy+y/2, cx+w/2, cy-y/2, cx+w/2, cy+y/2]
 
-        w = 3*255/2
-        h = 3*255/4
-        cx = w/2
-        cy = h/2
         bbox = np.array([cx, cy, w, h])
         return center2corner(bbox)
+
+    def get_subwindow_custom(self, im, pos, model_sz, original_sz, avg_chans):
+        """
+        args:
+            im: bgr based image
+            pos: center position
+            model_sz: exemplar size
+            s_z: original size
+            avg_chans: channel average
+        """
+        if isinstance(pos, float):
+            pos = [pos, pos]
+        sz = original_sz
+        im_sz = im.shape
+        c = (original_sz + 1) / 2
+        # context_xmin = round(pos[0] - c) # py2 and py3 round
+        context_xmin = np.floor(pos[0] - c + 0.5)
+        context_xmax = context_xmin + sz - 1
+        # context_ymin = round(pos[1] - c)
+        context_ymin = np.floor(pos[1] - c + 0.5)
+        context_ymax = context_ymin + sz - 1
+        left_pad = int(max(0., -context_xmin))
+        top_pad = int(max(0., -context_ymin))
+        right_pad = int(max(0., context_xmax - im_sz[1] + 1))
+        bottom_pad = int(max(0., context_ymax - im_sz[0] + 1))
+
+        context_xmin = context_xmin + left_pad
+        context_xmax = context_xmax + left_pad
+        context_ymin = context_ymin + top_pad
+        context_ymax = context_ymax + top_pad
+
+        r, c, k = im.shape
+        if any([top_pad, bottom_pad, left_pad, right_pad]):
+            size = (r + top_pad + bottom_pad, c + left_pad + right_pad, k)
+            te_im = np.zeros(size, np.uint8)
+            te_im[top_pad:top_pad + r, left_pad:left_pad + c, :] = im
+            if top_pad:
+                te_im[0:top_pad, left_pad:left_pad + c, :] = avg_chans
+            if bottom_pad:
+                te_im[r + top_pad:, left_pad:left_pad + c, :] = avg_chans
+            if left_pad:
+                te_im[:, 0:left_pad, :] = avg_chans
+            if right_pad:
+                te_im[:, c + left_pad:, :] = avg_chans
+            im_patch = te_im[int(context_ymin):int(context_ymax + 1),
+                             int(context_xmin):int(context_xmax + 1), :]
+        else:
+            im_patch = im[int(context_ymin):int(context_ymax + 1),
+                          int(context_xmin):int(context_xmax + 1), :]
+
+        if not np.array_equal(model_sz, original_sz):
+            im_patch = cv2.resize(im_patch, (model_sz, model_sz))
+        # im_patch = im_patch[np.newaxis, :, :, :]
+        im_patch = im_patch.astype(np.int)
+
+        return im_patch, [int(context_ymin), int(context_ymax), int(context_xmin), int(context_xmax)], \
+            [top_pad, bottom_pad, left_pad, right_pad]
+
+    def crop(self, img, bbox=None, is_template=True, im_name=None):
+        # calculate channel average
+        channel_average = np.mean(img, axis=(0, 1))
+
+        # calculate z crop size
+        if is_template:
+            self.size = np.array([bbox[2], bbox[3]])
+
+        w_z = self.size[0] + self.config.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
+        h_z = self.size[1] + self.config.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
+        s_z = round(np.sqrt(w_z * h_z))
+
+        if is_template:
+            sz = s_z
+            limit_size = self.config.TRACK.EXEMPLAR_SIZE
+            self.center_pos = np.array([bbox[0], bbox[1]])
+        else:
+            s_x = s_z * (self.config.TRACK.INSTANCE_SIZE / self.config.TRACK.EXEMPLAR_SIZE)
+            sz = round(s_x)
+            limit_size = self.config.TRACK.INSTANCE_SIZE
+
+        h, w, _ = img.shape
+        _crop, box, pad = self.get_subwindow_custom(img, self.center_pos, limit_size, sz, channel_average)
+
+        box[0] = box[0] - pad[0]
+        box[1] = box[1] - pad[0]
+        box[2] = box[2] - pad[2]
+        box[3] = box[3] - pad[2]
+
+        box[0] = 0 if box[0] < 0 else box[0]
+        box[2] = 0 if box[2] < 0 else box[2]
+        box[1] = h-1 if box[1] > h else box[1]
+        box[3] = w-1 if box[3] > w else box[3]
+
+        return _crop, sz, box, pad
+
+    def d__iter__(self):
+        for i in range(len(self.img_names)):
+
+            if self.imgs is not None:
+                img = self.imgs[i]
+            else:
+                img = cv2.imread(self.img_names[i])
+
+            # , cls, delta, delta_weight, bbox
+            yield img, self.gt_traj[i]
 
     def __iter__(self):
         for i in range(len(self.img_names)):
@@ -157,32 +262,59 @@ class Video(object):
             gray = False
 
             # get Corner
+            # gt_traj = {x1,y1,x2,y2,x3,y3,x4,y4}
+            # bbox = {cx, cy, w, h}
             bbox = get_min_max_bbox(np.asarray(self.gt_traj[i], dtype=np.float32))
-            bbox = self._get_bbox(img, bbox[-2:])
 
-            # augmentation
-            template, _ = self.template_aug(img,
-                                            bbox,
-                                            self.config.TRAIN.EXEMPLAR_SIZE,
-                                            gray=gray)
+            # box = {top, bottom, left, right}
+            z, szz, box, padz = self.crop(img, bbox=bbox, is_template=True, im_name='search')
+            z = np.array(z.astype(np.uint8))
+            h = box[1] - box[0]
+            w = box[3] - box[2]
+            _bbox = self._get_bbox(z, [w, h])
 
-            # _bbox_s is Corner (x1,y1,x2,y2)
-            search, bbox_s = self.search_aug(img,
-                                           bbox,
-                                           self.config.TRAIN.SEARCH_SIZE,
-                                           gray=gray)
+            # cv2.rectangle(nimg, (int(_bbox.x1), int(_bbox.y1)), (int(_bbox.x2), int(_bbox.y2)), (0, 0, 0), 3)
+            cv2.imwrite(os.path.join('/media/wattanapongsu/3T/temp/save', self.name, 'z.'+str(i).zfill(7)+'.jpg'), z)
+
+            # exemplar, bbox_s = self.template_aug(nimg, _bbox, self.config.TRAIN.EXEMPLAR_SIZE, gray=gray)
+            # nimg = cv2.UMat(nimg).get()
+            # cv2.rectangle(exemplar, (int(bbox_s.x1), int(bbox_s.y1)), (int(bbox_s.x2), int(bbox_s.y2)), (0, 0, 0), 3)
+            # cv2.imwrite(os.path.join('/media/wattanapongsu/3T/temp/save/bag/z.' + str(i) + '.2.jpg'), exemplar)
+
+            x, szx, boxx, padx = self.crop(img, bbox=bbox, is_template=False, im_name='search')
+            x = np.array(x.astype(np.uint8))
+            h = boxx[1] - boxx[0]
+            w = boxx[3] - boxx[2]
+
+            # _bbox size is under 255x255
+            _bbox = self._get_bbox(x, [w, h])
+
+            # cv2.rectangle(nimg, (int(_bbox.x1), int(_bbox.y1)), (int(_bbox.x2), int(_bbox.y2)), (0, 0, 0), 3)
+            cv2.imwrite(os.path.join('/media/wattanapongsu/3T/temp/save', self.name, 'x.'+str(i).zfill(7)+'.jpg'), x)
+
+            # search, bbox_s = self.search_aug(nimg, _bbox, self.config.TRAIN.SEARCH_SIZE, gray=gray)
+            # cv2.rectangle(search, (int(bbox_s.x1), int(bbox_s.y1)), (int(bbox_s.x2), int(bbox_s.y2)), (0, 0, 0), 3)
+            # cv2.imwrite(os.path.join('/media/wattanapongsu/3T/temp/save/bag/x.' + str(i) + '.2.jpg'), search)
 
             # get labels
-            # cls, delta, delta_weight, overlap = self.anchor_target(
-            #     bbox_s, self.config.TRAIN.OUTPUT_SIZE)
-            # cls_s, delta_s, delta_weight_s, overlap_s = self.anchor_target(
-            #     bbox_s, self.config.TRAIN.OUTPUT_SIZE)
-            bbox_perturb = self.perturb(bbox_s, self.config.TRAIN.OUTPUT_SIZE)
+            # bbox_perturb and _bbox are corner .x1, .y1, .x2, .y2
+            bbox_perturb = self.perturb(_bbox, self.config.TRAIN.SEARCH_SIZE)
             cls_s, delta_s, delta_weight_s, overlap_s = self.anchor_target(
                 bbox_perturb, self.config.TRAIN.OUTPUT_SIZE)
 
+            import torch
+            x = x.transpose(2, 0, 1)
+            x = x[np.newaxis, :, :, :]
+            x = x.astype(np.float32)
+            x = torch.from_numpy(x)
+
+            z = z.transpose(2, 0, 1)
+            z = z[np.newaxis, :, :, :]
+            z = z.astype(np.float32)
+            z = torch.from_numpy(z)
+
             # , cls, delta, delta_weight, bbox
-            yield img, self.gt_traj[i], cls_s, delta_s, delta_weight_s, bbox_perturb
+            yield img, self.gt_traj[i], z, x, szx, boxx, padx, cls_s, delta_s, delta_weight_s, overlap_s, _bbox, bbox_perturb
 
     def draw_box(self, roi, img, linewidth, color, name=None):
         """

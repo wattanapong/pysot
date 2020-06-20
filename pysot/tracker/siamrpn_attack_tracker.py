@@ -14,7 +14,7 @@ from pysot.core.config import cfg
 from pysot.utils.anchor import Anchors
 from pysot.tracker.base_tracker import SiameseTracker
 from pysot.datasets.anchor_target import AnchorTarget
-
+from pysot.utils.bbox import get_min_max_bbox, center2corner, Center, get_axis_aligned_bbox
 
 class SiamRPNAttackTracker(SiameseTracker):
     def __init__(self, model):
@@ -71,37 +71,53 @@ class SiamRPNAttackTracker(SiameseTracker):
         height = max(10, min(height, boundary[0]))
         return cx, cy, width, height
 
-    def crop(self, img, bbox=None, is_template=True, im_name=None):
+    def _get_bbox(self, image, shape):
+        imh, imw = image.shape[-2:]
+        cx, cy = imw // 2, imh // 2
+
+        if len(shape) == 4:
+            w, h = shape[2]-shape[0], shape[3]-shape[1]
+        else:
+            w, h = shape
+
+        context_amount = 0.5
+        exemplar_size = cfg.TRAIN.EXEMPLAR_SIZE
+        wc_z = w + context_amount * (w+h)
+        hc_z = h + context_amount * (w+h)
+        s_z = np.sqrt(wc_z * hc_z)
+        scale_z = exemplar_size / s_z
+        w = w*scale_z
+        h = h*scale_z
+
+        bbox = center2corner(Center(cx, cy, w, h))
+        return bbox
+
+    def perturb(self, bbox, sz):
+        # bbox[1] = bbox[1] - bbox[3] + sz/5
+        # bbox[2] = bbox[2] // 6
+        # bbox[3] = bbox[3] // 6
+        return bbox
+
+    def crop(self, img, bbox=None, im_name=None):
         # calculate channel average
         self.channel_average = np.mean(img, axis=(0, 1))
 
-        # calculate z crop size
-        if is_template:
-            self.size = np.array([bbox[2], bbox[3]])
-
+        # [x, y, w, h] to [cx, cy, w, h]
+        bbox = [bbox[0] + bbox[2] // 2, bbox[1] + bbox[3] // 2, bbox[2], bbox[3]]
         w_z = self.size[0] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
         h_z = self.size[1] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
         s_z = round(np.sqrt(w_z * h_z))
-
-        if is_template:
-            sz = s_z
-            self.center_pos = np.array([bbox[0] + (bbox[2] - 1) / 2,
-                                        bbox[1] + (bbox[3] - 1) / 2])
-            limit_size = cfg.TRACK.EXEMPLAR_SIZE
-        else:
-            s_x = s_z * (cfg.TRACK.INSTANCE_SIZE / cfg.TRACK.EXEMPLAR_SIZE)
-            sz = round(s_x)
-            # s_x = sz * (cfg.TRACK.INSTANCE_SIZE / cfg.TRACK.EXEMPLAR_SIZE)
-            limit_size = cfg.TRACK.INSTANCE_SIZE
+        s_x = s_z * (cfg.TRACK.INSTANCE_SIZE / cfg.TRACK.EXEMPLAR_SIZE)
+        sz = round(s_x)
+        # s_x = sz * (cfg.TRACK.INSTANCE_SIZE / cfg.TRACK.EXEMPLAR_SIZE)
+        limit_size = cfg.TRACK.INSTANCE_SIZE
 
         # get crop
         # box = {top, bottom, left, right}
         # pad = {pad top, pad bottom, pad left, pad pad right}
         h, w, _ = img.shape
         _crop, box, pad = self.get_subwindow_custom(img, self.center_pos, limit_size, sz, self.channel_average)
-        # pad_h = pad[0] + pad[1]
-        # pad_w = pad[2] + pad[3]
-        # box = box[0] - pad[0], box[1] - pad[1] + 1, box[2] - pad[2], box[3] - pad[3] + 1
+
         box[0] = box[0] - pad[0]
         box[1] = box[1] - pad[0]
         box[2] = box[2] - pad[2]
@@ -109,14 +125,66 @@ class SiamRPNAttackTracker(SiameseTracker):
 
         box[0] = 0 if box[0] < 0 else box[0]
         box[2] = 0 if box[2] < 0 else box[2]
-        box[1] = h-1 if box[1] > h else box[1]
-        box[3] = w-1 if box[3] > w else box[3]
-
-        # if im_name is not None:
-        #     _img = _crop.data.cpu().numpy().squeeze().transpose([1, 2, 0])
-        # cv2.imwrite('/media/wattanapongsu/3T/temp/save/' + im_name+'.jpg', _img)
+        box[1] = h - 1 if box[1] > h else box[1]
+        box[3] = w - 1 if box[3] > w else box[3]
 
         return _crop, sz, box, pad
+
+    # def crop(self, img, bbox=None, im_name=None):
+    #     # calculate channel average
+    #     self.channel_average = np.mean(img, axis=(0, 1))
+    #
+    #     # [x, y, w, h] to [cx, cy, w, h]
+    #     bbox = [bbox[0] + bbox[2] // 2, bbox[1] + bbox[3] // 2, bbox[2], bbox[3]]
+    #     w_z = self.size[0] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
+    #     h_z = self.size[1] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
+    #     s_z = round(np.sqrt(w_z * h_z))
+    #     s_x = s_z * (cfg.TRACK.INSTANCE_SIZE / cfg.TRACK.EXEMPLAR_SIZE)
+    #     sz = round(s_x)
+    #     # s_x = sz * (cfg.TRACK.INSTANCE_SIZE / cfg.TRACK.EXEMPLAR_SIZE)
+    #     limit_size = cfg.TRACK.INSTANCE_SIZE
+    #
+    #     # get crop
+    #     # box = {top, bottom, left, right}
+    #     # pad = {pad top, pad bottom, pad left, pad pad right}
+    #     _crop, box, pad = self.get_subwindow_custom(img, self.center_pos, limit_size, sz, self.channel_average)
+    #
+    #     h = box[1] - box[0]
+    #     w = box[3] - box[2]
+    #     _bbox = self._get_bbox(_crop, [w, h])
+    #
+    #     bbox_perturb = self.perturb(_bbox, cfg.TRAIN.SEARCH_SIZE)
+    #     cls, delta, delta_w, overlap = self.anchor_target(
+    #         bbox_perturb, cfg.TRAIN.OUTPUT_SIZE)
+    #     bp = np.array(bbox_perturb, np.int)
+    #
+    #     _img = _crop.data.cpu().numpy().squeeze().transpose([1, 2, 0])
+    #     _img = cv2.UMat(_img).get()
+    #
+    #     cv2.rectangle(_img, (bp[0], bp[1]), (bp[2], bp[3]), (0, 0, 0), 3)
+    #     cv2.imwrite('/media/wattanapongsu/3T/temp/save/bag/crop' + im_name + '.jpg', _img)
+    #
+    #     import pdb
+    #     pdb.set_trace()
+    #
+    #     box[0] = box[0] - pad[0]
+    #     box[1] = box[1] - pad[0]
+    #     box[2] = box[2] - pad[2]
+    #     box[3] = box[3] - pad[2]
+    #
+    #     box[0] = 0 if box[0] < 0 else box[0]
+    #     box[2] = 0 if box[2] < 0 else box[2]
+    #     box[1] = h - 1 if box[1] > h else box[1]
+    #     box[3] = w - 1 if box[3] > w else box[3]
+    #
+    #     # if im_name is not None and True:
+    #     #     _img = _crop.data.cpu().numpy().squeeze().transpose([1, 2, 0])
+    #     #     _img = cv2.UMat(_img).get()
+    #     #
+    #     #     cv2.rectangle(_img, (bp[0], bp[1]), (bp[2], bp[3]), (0, 0, 0), 3)
+    #     #     cv2.imwrite('/media/wattanapongsu/3T/temp/save/bag/crop' + im_name + '.jpg', _img)
+    #
+    #     return _crop, sz, box, pad, cls, delta, delta_w
 
     def init(self, img, bbox):
         """
@@ -128,9 +196,9 @@ class SiamRPNAttackTracker(SiameseTracker):
         self.size = np.array([bbox[2], bbox[3]])
 
         # get labels
-        bb = np.array([bbox[0],bbox[1],bbox[0]+bbox[2], bbox[1]+bbox[3]])
-        cls, delta, delta_weight, overlap = self.anchor_target(
-            bb, cfg.TRAIN.OUTPUT_SIZE)
+        # bb = np.array([bbox[0],bbox[1],bbox[0]+bbox[2], bbox[1]+bbox[3]])
+        # cls, delta, delta_weight, overlap = self.anchor_target(
+        #     bb, cfg.TRAIN.OUTPUT_SIZE)
 
         # calculate z crop size
         w_z = self.size[0] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
@@ -141,10 +209,10 @@ class SiamRPNAttackTracker(SiameseTracker):
         self.channel_average = np.mean(img, axis=(0, 1))
 
         # get crop
-        z_crop, _, _ = self.get_subwindow_custom(img, self.center_pos,
+        self.z_crop, _, _ = self.get_subwindow_custom(img, self.center_pos,
                                     cfg.TRACK.EXEMPLAR_SIZE,
                                     s_z, self.channel_average)
-        self.model.template(z_crop)
+        self.model.template(self.z_crop)
 
     def track(self, img):
         """
