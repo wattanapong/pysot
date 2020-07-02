@@ -143,6 +143,7 @@ class Video(object):
 
         # bbox = [cx-w/2, cy-y/2, cx-w/2, cy+y/2, cx+w/2, cy-y/2, cx+w/2, cy+y/2]
 
+        # bbox = np.array([cx - w, cy - h, w//2, h//2])
         bbox = np.array([cx, cy, w, h])
         return center2corner(bbox)
 
@@ -274,7 +275,7 @@ class Video(object):
             _bbox = self._get_bbox(z, [w, h])
 
             # cv2.rectangle(nimg, (int(_bbox.x1), int(_bbox.y1)), (int(_bbox.x2), int(_bbox.y2)), (0, 0, 0), 3)
-            cv2.imwrite(os.path.join('/media/wattanapongsu/3T/temp/save', self.name, 'z.'+str(i).zfill(7)+'.jpg'), z)
+            # cv2.imwrite(os.path.join('/media/wattanapongsu/3T/temp/save', self.name, 'z.'+str(i).zfill(7)+'.jpg'), z)
 
             # exemplar, bbox_s = self.template_aug(nimg, _bbox, self.config.TRAIN.EXEMPLAR_SIZE, gray=gray)
             # nimg = cv2.UMat(nimg).get()
@@ -290,7 +291,7 @@ class Video(object):
             _bbox = self._get_bbox(x, [w, h])
 
             # cv2.rectangle(nimg, (int(_bbox.x1), int(_bbox.y1)), (int(_bbox.x2), int(_bbox.y2)), (0, 0, 0), 3)
-            cv2.imwrite(os.path.join('/media/wattanapongsu/3T/temp/save', self.name, 'x.'+str(i).zfill(7)+'.jpg'), x)
+            # cv2.imwrite(os.path.join('/media/wattanapongsu/3T/temp/save', self.name, 'x.'+str(i).zfill(7)+'.jpg'), x)
 
             # search, bbox_s = self.search_aug(nimg, _bbox, self.config.TRAIN.SEARCH_SIZE, gray=gray)
             # cv2.rectangle(search, (int(bbox_s.x1), int(bbox_s.y1)), (int(bbox_s.x2), int(bbox_s.y2)), (0, 0, 0), 3)

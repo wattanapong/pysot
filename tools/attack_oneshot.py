@@ -18,7 +18,7 @@ from torchvision.transforms import ToTensor, ToPILImage
 
 from torch.utils.data import DataLoader
 from pysot.core.config import cfg
-from pysot.models.model_builder import ModelBuilder
+from pysot.models.model_builder_oneshot import ModelBuilder
 from pysot.tracker.tracker_builder import build_tracker
 from pysot.utils.bbox import get_axis_aligned_bbox
 from pysot.utils.model_load import load_pretrain
@@ -84,41 +84,28 @@ def main():
     epsilon = args.epsilon
 
     # create model
-    model = Steath([1, 3, 255, 255])
-    track_model = ModelBuilder()
+    track_model1 = ModelBuilder()
+    track_model2 = ModelBuilder()
     lr = args.lr
 
     # load model
-    model = load_pretrain(model, args.snapshot).cuda()
-    track_model = load_pretrain(track_model, args.snapshot).cuda().eval()
-    optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9)
-    model.train()
-    # model.dx.requires_grad_(True)
-    # model.backbone.eval()
-    # if cfg.ADJUST.ADJUST:
-    #     model.neck.eval()
-    # model.rpn_head.eval()
-
-    for name, param in model.named_parameters():
-
-        if 'backbone' in name or 'neck' in name or 'rpn_head' in name:
-            param.requires_grad_(False)
-        elif param.requires_grad:
-            param.requires_grad_(True)
-            print(name, param.data)
-        else:
-            print(name)
+    track_model1 = load_pretrain(track_model1, args.snapshot)
+    track_model2 = load_pretrain(track_model2, args.snapshot)
 
     clipper = WeightClipper(5)
 
     # build tracker
-    tracker1 = build_tracker(track_model)
-    tracker2 = build_tracker(track_model)
+    tracker1 = build_tracker(track_model1)
+    tracker2 = build_tracker(track_model2)
+    tracker1.model.cuda()
+    tracker2.model.cuda().train()
+    optimizer = optim.Adam(tracker2.model.parameters(), lr=lr)
 
     # create dataset
     dataset = DatasetFactory.create_dataset(name=args.dataset,
                                             dataset_root=dataset_root,
                                             load_img=False,
+                                            dataset_toolkit='oneshot',
                                             config=cfg)
     #
     # vid.name = {'ants1','ants3',....}
@@ -128,6 +115,17 @@ def main():
     model_name = args.snapshot.split('/')[-1].split('.')[0]
     total_lost = 0
     n_epochs = args.epochs
+
+    for name, param in tracker2.model.named_parameters():
+
+        if 'backbone' in name or 'neck' in name or 'rpn_head' in name:
+            param.requires_grad_(False)
+        elif param.requires_grad:
+            param.requires_grad_(True)
+            # print(name, param.data)
+            print('grad true ', name)
+        else:
+            print('grad false ', name)
 
     if args.dataset in ['VOT2016', 'VOT2018', 'VOT2019']:
 
@@ -149,151 +147,89 @@ def main():
             lost_number = 0
             toc = 0
             pred_bboxes = []
-            data = {'template': None, 'search': None}
 
-            for idx, (img, gt_bbox, z, x, szx, boxx, padx, cls, delta, delta_w, overlap, _bbox, _bbox_p) in enumerate(video):
-
+            for idx, (img, gt_bbox) in enumerate(video):
                 if len(gt_bbox) == 4:
                     gt_bbox = [gt_bbox[0], gt_bbox[1],
-                       gt_bbox[0], gt_bbox[1]+gt_bbox[3]-1,
-                       gt_bbox[0]+gt_bbox[2]-1, gt_bbox[1]+gt_bbox[3]-1,
-                       gt_bbox[0]+gt_bbox[2]-1, gt_bbox[1]]
-
+                               gt_bbox[0], gt_bbox[1] + gt_bbox[3] - 1,
+                               gt_bbox[0] + gt_bbox[2] - 1, gt_bbox[1] + gt_bbox[3] - 1,
+                               gt_bbox[0] + gt_bbox[2] - 1, gt_bbox[1]]
                 tic = cv2.getTickCount()
-
-                cx, cy, w, h = get_axis_aligned_bbox(np.array(gt_bbox))
-                gt_bbox_ = [cx-w//2, cy-h//2, w, h]
-
                 if idx == frame_counter:
+                    cx, cy, w, h = get_axis_aligned_bbox(np.array(gt_bbox))
+                    gt_bbox_ = [cx - (w - 1) / 2, cy - (h - 1) / 2, w, h]
                     tracker1.init(img, gt_bbox_)
-                    tracker2.init(img, gt_bbox_)
-                    pred_bbox = gt_bbox_
+                    tracker2.init(img, gt_bbox_, epsilon=args.epsilon)
                     pred_bboxes.append(1)
-
-                    data['template'] = torch.autograd.Variable(z, requires_grad=True).cuda()
-
+                    zf = torch.mean(torch.stack(tracker1.model.zf), 0)
                 elif idx > frame_counter:
-                    prim_img = np.copy(img)
-                    data['search'] = torch.autograd.Variable(x, requires_grad=True).cuda()
-                    data['label_cls'] = torch.Tensor(cls).type(torch.LongTensor).cuda()
-                    data['label_loc'] = torch.Tensor(delta).type(torch.FloatTensor).cuda()
-                    data['label_loc_weight'] = torch.Tensor(delta_w).cuda()
+                    outputs = tracker1.track(img, idx=idx)
+                    # update state
+                    tracker1.center_pos = outputs['center_pos']
+                    tracker1.size = outputs['size']
 
-                    diff = data['search']
+                    # print(' original ', outputs['bbox'])
+                    for i in range(0, 100):
+                        _outputs = tracker2.track(img, epsilon=args.epsilon, zf=zf, idx=idx, iter=i)
+                        # print(_outputs['best_score'], outputs['target_score'])
 
-                    for epoch in range(n_epochs):
-                        outputs = model(data, epsilon)
-                        cls_loss = outputs['cls_loss']
-                        # print(idx, epoch, cls_loss.item())
-                        loc_loss = outputs['loc_loss']
-                        total_loss = outputs['total_loss']
+                        if _outputs['best_score'] < outputs['target_score']:
+                            total_loss_val = 0
+                            break
+                        else:
+                            l1 = _outputs['l1']
+                            l2 = _outputs['l2']
+                            total_loss = l1 + l2
+                            total_loss_val = total_loss.item()
+                            # print(_outputs['bbox'])
 
-                        print('{}/{} cls={}, loc={}, total={}'.format(idx, len(video), cls_loss.item(), loc_loss.item(),
-                                                                      total_loss.item()))
+                            optimizer.zero_grad()
+                            total_loss.backward(retain_graph=True)
+                            optimizer.step()
 
-                        optimizer.zero_grad()
-                        # cls_loss.backward()
-                        total_loss.backward()
-                        # model.apply(clipper)
-                        optimizer.step()
+                    print(idx, i, total_loss_val)
 
-                        # print('loss ', loss(diff, outputs['search']).item())
-                        # diff = outputs['search']
+                    # update state
+                    tracker2.center_pos = _outputs['center_pos']
+                    tracker2.size = _outputs['size']
 
-                    # print(epoch, cls_loss, loc_loss, total_loss)
-                    # print('{}/{} cls={}, loc={}, total={}'.format(idx, len(video), cls_loss.item(), loc_loss.item(),
-                    #                                               total_loss.item()))
-                    perturb_data = outputs['search']
-
-                    # cv2.rectangle(img, (int(cx-w/2+1), int(cy-h/2+1)), (int(cx+w/2+1), int(cy+h/2+1)), (0, 0, 0), 3)
-                    # cv2.imwrite(os.path.join(args.savedir, video.name, 'original_' + str(idx).zfill(7) + '.jpg'), img)
-
-                    # _img = perturb_data.data.cpu().numpy().squeeze().transpose([1, 2, 0])
-                    # cv2.imwrite(os.path.join(args.savedir, 'perturb_' + str(idx) + '.jpg'), _img)
-
-                    szx = int(szx)
-
-                    if not np.array_equal(cfg.TRACK.INSTANCE_SIZE, szx):
-                        perturb_data = F.interpolate(perturb_data, size=szx)
-                        __bbox = (np.array(_bbox_p)*szx/cfg.TRACK.INSTANCE_SIZE).astype(np.int)
-
-                    _img = cv2.UMat(perturb_data.data.cpu().numpy().squeeze().transpose([1, 2, 0])).get()
-                    cv2.rectangle(_img, (__bbox[0], __bbox[1]), (__bbox[2], __bbox[3]), (0, 0, 0), 3)
-                    cv2.imwrite(os.path.join(args.savedir, video.name, 'crop_full_' + str(idx) + '.jpg'), _img)
-
-                    nh, nw, _ = _img.shape
-
-                    __bbox0 = np.zeros_like(__bbox)
-                    __bbox0[:4:2] = __bbox[:4:2] - padx[0]
-                    __bbox0[1:4:2] = __bbox[1:4:2] - padx[2]
-
-                    img[boxx[0]:boxx[1] + 1, boxx[2]:boxx[3] + 1, :] = \
-                        _img[boxx[0]+padx[0]:boxx[1]+padx[0] + 1, 0 + padx[2]:boxx[3] - boxx[2] + padx[2] + 1, :]
-                    # cv2.imwrite(os.path.join(args.savedir, video.name, 'perturb_full_' + str(idx) + '.jpg'), img)
-
-                    # if not np.array_equal(cfg.TRACK.INSTANCE_SIZE, sz):
-                    #     perturb_data = F.interpolate(perturb_data, size=sz)
-                    #     __bbox = (np.array(_bbox)*sz/cfg.TRACK.INSTANCE_SIZE).astype(np.uint8)
-                    #
-                    # _img = cv2.UMat(perturb_data.data.cpu().numpy().squeeze().transpose([1, 2, 0])).get()
-                    # cv2.rectangle(_img, (__bbox[0], __bbox[1]), (__bbox[2], __bbox[3]), (0, 0, 0), 3)
-                    # cv2.imwrite(os.path.join(args.savedir, video.name, 'crop_full_' + str(idx) + '.jpg'), _img)
-                    #
-                    # nh, nw, _ = _img.shape
-                    # img[bT:bB+1, bL:bR+1, :] = _img[pad[0]:nh - pad[1], pad[2]:nw - pad[3], :]
-                    # cv2.imwrite(os.path.join(args.savedir, video.name, 'perturb_full_' + str(idx) + '.jpg'), img)
-
-                    # nimg, sz, box, pad = tracker2.crop(img, bbox=gt_bbox_, im_name='search' + str(idx))
-
-                    outputs = tracker1.track(img)
-                    prim_outputs = tracker2.track(prim_img)
-
+                    # pdb.set_trace()
                     pred_bbox = outputs['bbox']
-                    prim_box = prim_outputs['bbox']
+                    ad_bbox = _outputs['bbox']
 
                     if cfg.MASK.MASK:
                         pred_bbox = outputs['polygon']
                     overlap = vot_overlap(pred_bbox, gt_bbox, (img.shape[1], img.shape[0]))
-                    if overlap > 0:
+                    ad_overlap = vot_overlap(ad_bbox, gt_bbox, (img.shape[1], img.shape[0]))
+                    if ad_overlap > 0:
                         # not lost
-                        pred_bboxes.append(pred_bbox)
+                        pred_bboxes.append(ad_bbox)
                     else:
                         # lost object
                         pred_bboxes.append(2)
-                        frame_counter = idx + 5 # skip 5 frames
+                        frame_counter = idx + 5  # skip 5 frames
                         lost_number += 1
                 else:
                     pred_bboxes.append(0)
-
-                # cv2.imwrite(os.path.join(args.savedir, video.name, str(idx).zfill(7) + '.jpg'), img)
-
                 toc += cv2.getTickCount() - tic
-
-                # write ground truth bbox
-                cv2.polylines(img, [np.array(gt_bbox, np.int).reshape((-1, 1, 2))],
-                              True, (255, 255, 255), 3)
 
                 if idx != frame_counter:
                     bbox = list(map(int, pred_bbox))
-                    prim_bbox = list(map(int, prim_box))
+                    ad_bbox = list(map(int, ad_bbox))
 
                     cv2.rectangle(img, (bbox[0], bbox[1]),
                                   (bbox[0] + bbox[2], bbox[1] + bbox[3]), (0, 255, 255), 3)
 
-                    cv2.rectangle(img, (prim_bbox[0], prim_bbox[1]),
-                                  (prim_bbox[0] + prim_bbox[2], prim_bbox[1] + prim_bbox[3]), (0, 0, 255), 3)
-
+                    cv2.rectangle(img, (ad_bbox[0], ad_bbox[1]),
+                                  (ad_bbox[0] + ad_bbox[2], bbox[1] + bbox[3]), (0, 0, 255), 3)
 
                 cv2.putText(img, str(idx), (40, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
                 cv2.putText(img, str(lost_number), (40, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
                 out.write(img)
-                cv2.imwrite(os.path.join(args.savedir, video.name, str(idx).zfill(7) + '.jpg'), img)
-
-                # import pdb
-                # pdb.set_trace()
 
             toc /= cv2.getTickFrequency()
+
             # save results
             video_path = os.path.join('results', args.dataset, model_name,
                     'baseline', video.name)
@@ -326,7 +262,7 @@ def main():
                 if idx == 0:
                     cx, cy, w, h = get_axis_aligned_bbox(np.array(gt_bbox))
                     gt_bbox_ = [cx-(w-1)/2, cy-(h-1)/2, w, h]
-                    tracker.init(img, gt_bbox_)
+                    tracker1.init(img, gt_bbox_)
                     pred_bbox = gt_bbox_
                     scores.append(None)
                     if 'VOT2018-LT' == args.dataset:
@@ -334,7 +270,7 @@ def main():
                     else:
                         pred_bboxes.append(pred_bbox)
                 else:
-                    outputs = tracker.track(img)
+                    outputs = tracker1.track(img)
                     pred_bbox = outputs['bbox']
                     pred_bboxes.append(pred_bbox)
                     scores.append(outputs['best_score'])
