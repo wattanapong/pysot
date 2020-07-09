@@ -20,7 +20,7 @@ class ModelBuilder(nn.Module):
     def __init__(self):
         super(ModelBuilder, self).__init__()
 
-        self.adv = nn.Parameter(torch.randn([1, 3, 127, 127], requires_grad=True, dtype=torch.float))
+        self.adv = nn.Parameter(torch.rand([1, 3, 127, 127], requires_grad=True, dtype=torch.float))
 
         # build backbone
         self.backbone = get_backbone(cfg.BACKBONE.TYPE,
@@ -44,7 +44,8 @@ class ModelBuilder(nn.Module):
                 self.refine_head = get_refine_head(cfg.REFINE.TYPE)
 
     def perturb(self, img, epsilon):
-        x = epsilon * (2 * self.adv - 1)
+        x = (self.adv - self.adv.min()) / (self.adv.max() - self.adv.min())
+        x = epsilon * (2 * x - 1)
         x = img - x
         x[x > 255] = 255
         x[x < 0] = 0
@@ -52,8 +53,19 @@ class ModelBuilder(nn.Module):
 
     def template(self, z, epsilon=0):
         if epsilon != 0:
-            z = self.perturb(z, epsilon)
-        zf = self.backbone(z)
+            _z = self.perturb(z, epsilon)
+            zf = self.backbone(_z)
+            # print(abs(z - _z)[int(z.shape[0]/2)])
+            # import cv2
+            # import os
+            # name1 = os.path.join('/media/wattanapongsu/4T/temp/save/Basketball/original.jpg')
+            # name2 = os.path.join('/media/wattanapongsu/4T/temp/save/Basketball/perturb.jpg')
+            # cv2.imwrite(name1, z.data.cpu().numpy().squeeze().transpose([1, 2, 0]))
+            # cv2.imwrite(name2, _z.data.cpu().numpy().squeeze().transpose([1, 2, 0]))
+            # import pdb
+            # pdb.set_trace()
+        else:
+            zf = self.backbone(z)
         if cfg.MASK.MASK:
             zf = zf[-1]
         if cfg.ADJUST.ADJUST:
@@ -61,7 +73,7 @@ class ModelBuilder(nn.Module):
 
         self.zf = zf
 
-        return z
+        return _z if epsilon != 0 else z
 
     def track(self, x, iter=0):
 

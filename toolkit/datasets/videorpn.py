@@ -18,7 +18,18 @@ class Video(object):
         self.gt_traj = gt_rect
         self.attr = attr
         self.pred_trajs = {}
-        self.img_names = [os.path.join(root, x.replace('color/','')) for x in img_names]
+
+        dataset = root.split('/')[-1]
+        if dataset == 'VOT2018':
+            self.img_names = [os.path.join(root, x.replace('color/','')) for x in img_names]
+        elif dataset == 'OTB100':
+            if video_dir == 'Jogging-1' or 'Skating2-1' in video_dir:
+                self.img_names = [os.path.join(root, x.replace('-1', '')) for x in img_names]
+            elif video_dir == 'Jogging-2' or 'Skating2-2' in video_dir:
+                self.img_names = [os.path.join(root, x.replace('-2', '')) for x in img_names]
+            else:
+                self.img_names = [os.path.join(root, x) for x in img_names]
+
         self.imgs = None
         self.config = config
         self.size = None

@@ -74,6 +74,38 @@ def BNtoFixed(m):
     if class_name.find('BatchNorm') != -1:
         m.eval()
 
+
+def save(img, imga, szx, boxx, pad, filename, save=False):
+    if save:
+        szx = int(szx)
+        if not np.array_equal(cfg.TRACK.EXEMPLAR_SIZE, szx):
+
+            imga2 = F.interpolate(imga, size=szx)
+            # boxx = (np.array(boxx) * szx / cfg.TRACK.EXEMPLAR_SIZE).astype(np.int)
+
+        imga2 = cv2.UMat(imga2.data.cpu().numpy().squeeze().transpose([1, 2, 0])).get()
+        # cv2.rectangle(imga, (bboxa[0], bboxa[1]), (bboxa[2], bboxa[3]), (0, 0, 0), 3)
+        boxx = np.array(boxx).astype(np.int)
+        L = int(boxx[0] + (boxx[2] + 1) / 2 - (imga2.shape[0] +1) / 2) - 1
+        R = int(boxx[0] + (boxx[2] + 1) / 2 + (imga2.shape[0] +1) / 2) - 1
+        T = int(boxx[1] + (boxx[3] + 1) / 2 - (imga2.shape[0] +1) / 2) - 1
+        B = int(boxx[1] + (boxx[3] + 1) / 2 + (imga2.shape[0] +1) / 2) - 1
+
+        if boxx[2] % 2 == 1:
+            L -= 1
+            R -= 1
+        if boxx[3] % 2 == 1:
+            T -= 1
+            B -= 1
+
+        imgn = img.copy()
+        imgn[T:B-1, L:R-1, :] = imga2
+        cv2.imwrite(filename, imgn)
+        # imgx = imgn[L:R-1, T:B-1, :]
+        # sum(sum(imga2 - imgx))
+
+    return imgn
+
 def main():
     # load config
     cfg.merge_from_file(args.config)
@@ -123,11 +155,11 @@ def main():
         elif param.requires_grad:
             param.requires_grad_(True)
             # print(name, param.data)
-            print('grad true ', name)
+            # print('grad true ', name)
         else:
             print('grad false ', name)
 
-    if args.dataset in ['VOT2016', 'VOT2018', 'VOT2019']:
+    if args.dataset in ['VOT2016', 'VOT2018', 'VOT2019', 'OTB100']:
 
         # restart tracking
         for v_idx, video in enumerate(dataset):
@@ -149,6 +181,7 @@ def main():
             pred_bboxes = []
 
             for idx, (img, gt_bbox) in enumerate(video):
+
                 if len(gt_bbox) == 4:
                     gt_bbox = [gt_bbox[0], gt_bbox[1],
                                gt_bbox[0], gt_bbox[1] + gt_bbox[3] - 1,
@@ -159,9 +192,12 @@ def main():
                     cx, cy, w, h = get_axis_aligned_bbox(np.array(gt_bbox))
                     gt_bbox_ = [cx - (w - 1) / 2, cy - (h - 1) / 2, w, h]
                     tracker1.init(img, gt_bbox_)
-                    tracker2.init(img, gt_bbox_, epsilon=args.epsilon)
+                    zimg = img
+                    sz, bbox, pad = tracker2.init(img, gt_bbox_, epsilon=args.epsilon)
                     pred_bboxes.append(1)
                     zf = torch.mean(torch.stack(tracker1.model.zf), 0)
+                    cv2.imwrite(os.path.join(args.savedir, video.name, str(idx).zfill(6) +'.jpg'), img)
+
                 elif idx > frame_counter:
                     outputs = tracker1.track(img, idx=idx)
                     # update state
@@ -169,7 +205,7 @@ def main():
                     tracker1.size = outputs['size']
 
                     # print(' original ', outputs['bbox'])
-                    for i in range(0, 100):
+                    for i in range(0, args.epochs):
                         _outputs = tracker2.track(img, epsilon=args.epsilon, zf=zf, idx=idx, iter=i)
                         # print(_outputs['best_score'], outputs['target_score'])
 
@@ -179,7 +215,7 @@ def main():
                         else:
                             l1 = _outputs['l1']
                             l2 = _outputs['l2']
-                            total_loss = l1 + l2
+                            total_loss = l1 + 0.4*l2
                             total_loss_val = total_loss.item()
                             # print(_outputs['bbox'])
 
@@ -187,7 +223,10 @@ def main():
                             total_loss.backward(retain_graph=True)
                             optimizer.step()
 
-                    print(idx, i, total_loss_val)
+                    # _zimg = save(zimg, tracker2.z_crop_adv, sz, gt_bbox_, pad,
+                    #         os.path.join(args.savedir, video.name, str(idx).zfill(6) +'.jpg'), save=True)
+
+                    # print(idx, i, total_loss_val, _outputs['center_pos'], _outputs['size'])
 
                     # update state
                     tracker2.center_pos = _outputs['center_pos']
@@ -221,12 +260,14 @@ def main():
                                   (bbox[0] + bbox[2], bbox[1] + bbox[3]), (0, 255, 255), 3)
 
                     cv2.rectangle(img, (ad_bbox[0], ad_bbox[1]),
-                                  (ad_bbox[0] + ad_bbox[2], bbox[1] + bbox[3]), (0, 0, 255), 3)
+                                  (ad_bbox[0] + ad_bbox[2], ad_bbox[1] + ad_bbox[3]), (0, 0, 255), 3)
 
                 cv2.putText(img, str(idx), (40, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
                 cv2.putText(img, str(lost_number), (40, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
                 out.write(img)
+
+                print('frame {}/{}'.format(idx, len(video)))
 
             toc /= cv2.getTickFrequency()
 
@@ -246,93 +287,6 @@ def main():
                     v_idx+1, video.name, toc, idx / toc, lost_number))
             total_lost += lost_number
         print("{:s} total lost: {:d}".format(model_name, total_lost))
-    else:
-        # OPE tracking
-        for v_idx, video in enumerate(dataset):
-            if args.video != '':
-                # test one special video
-                if video.name != args.video:
-                    continue
-            toc = 0
-            pred_bboxes = []
-            scores = []
-            track_times = []
-            for idx, (img, gt_bbox) in enumerate(video):
-                tic = cv2.getTickCount()
-                if idx == 0:
-                    cx, cy, w, h = get_axis_aligned_bbox(np.array(gt_bbox))
-                    gt_bbox_ = [cx-(w-1)/2, cy-(h-1)/2, w, h]
-                    tracker1.init(img, gt_bbox_)
-                    pred_bbox = gt_bbox_
-                    scores.append(None)
-                    if 'VOT2018-LT' == args.dataset:
-                        pred_bboxes.append([1])
-                    else:
-                        pred_bboxes.append(pred_bbox)
-                else:
-                    outputs = tracker1.track(img)
-                    pred_bbox = outputs['bbox']
-                    pred_bboxes.append(pred_bbox)
-                    scores.append(outputs['best_score'])
-                toc += cv2.getTickCount() - tic
-                track_times.append((cv2.getTickCount() - tic)/cv2.getTickFrequency())
-                if idx == 0:
-                    cv2.destroyAllWindows()
-                if args.vis and idx > 0:
-                    gt_bbox = list(map(int, gt_bbox))
-                    pred_bbox = list(map(int, pred_bbox))
-                    cv2.rectangle(img, (gt_bbox[0], gt_bbox[1]),
-                                  (gt_bbox[0]+gt_bbox[2], gt_bbox[1]+gt_bbox[3]), (0, 255, 0), 3)
-                    cv2.rectangle(img, (pred_bbox[0], pred_bbox[1]),
-                                  (pred_bbox[0]+pred_bbox[2], pred_bbox[1]+pred_bbox[3]), (0, 255, 255), 3)
-                    cv2.putText(img, str(idx), (40, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
-                    cv2.imshow(video.name, img)
-                    cv2.waitKey(1)
-            toc /= cv2.getTickFrequency()
-            # save results
-            if 'VOT2018-LT' == args.dataset:
-                video_path = os.path.join('results', args.dataset, model_name,
-                        'longterm', video.name)
-                if not os.path.isdir(video_path):
-                    os.makedirs(video_path)
-                result_path = os.path.join(video_path,
-                        '{}_001.txt'.format(video.name))
-                with open(result_path, 'w') as f:
-                    for x in pred_bboxes:
-                        f.write(','.join([str(i) for i in x])+'\n')
-                result_path = os.path.join(video_path,
-                        '{}_001_confidence.value'.format(video.name))
-                with open(result_path, 'w') as f:
-                    for x in scores:
-                        f.write('\n') if x is None else f.write("{:.6f}\n".format(x))
-                result_path = os.path.join(video_path,
-                        '{}_time.txt'.format(video.name))
-                with open(result_path, 'w') as f:
-                    for x in track_times:
-                        f.write("{:.6f}\n".format(x))
-            elif 'GOT-10k' == args.dataset:
-                video_path = os.path.join('results', args.dataset, model_name, video.name)
-                if not os.path.isdir(video_path):
-                    os.makedirs(video_path)
-                result_path = os.path.join(video_path, '{}_001.txt'.format(video.name))
-                with open(result_path, 'w') as f:
-                    for x in pred_bboxes:
-                        f.write(','.join([str(i) for i in x])+'\n')
-                result_path = os.path.join(video_path,
-                        '{}_time.txt'.format(video.name))
-                with open(result_path, 'w') as f:
-                    for x in track_times:
-                        f.write("{:.6f}\n".format(x))
-            else:
-                model_path = os.path.join('results', args.dataset, model_name)
-                if not os.path.isdir(model_path):
-                    os.makedirs(model_path)
-                result_path = os.path.join(model_path, '{}.txt'.format(video.name))
-                with open(result_path, 'w') as f:
-                    for x in pred_bboxes:
-                        f.write(','.join([str(i) for i in x])+'\n')
-            print('({:3d}) Video: {:12s} Time: {:5.1f}s Speed: {:3.1f}fps'.format(
-                v_idx+1, video.name, toc, idx / toc))
 
 
 if __name__ == '__main__':
