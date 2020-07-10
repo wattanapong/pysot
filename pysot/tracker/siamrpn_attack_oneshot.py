@@ -234,8 +234,8 @@ class SiamRPNAttackOneShot(SiameseTracker):
         bbox = pred_bbox[:, best_idx] / scale_z
 
         # window penalty
-        pscore = pscore * torch.tensor(1 - cfg.TRACK.WINDOW_INFLUENCE).cuda() + torch.tensor(
-            self.window * cfg.TRACK.WINDOW_INFLUENCE).cuda()
+        pscore = pscore * torch.tensor(1 - cfg.TRACK.WINDOW_INFLUENCE, dtype=torch.float32).cuda() + \
+	torch.tensor(self.window * cfg.TRACK.WINDOW_INFLUENCE, dtype=torch.float32).cuda()
 
         if zf is not None:
 
