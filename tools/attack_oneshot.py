@@ -243,30 +243,36 @@ def main():
                     img1 = img.copy()
 
                 elif idx > frame_counter:
+
                     outputs = tracker1.track(img, idx=idx)
-                    print('****************** state of the art tracking ******************')
+
+                    # print('****************** state of the art tracking ******************')
                     # update state
                     tracker1.center_pos = outputs['center_pos']
                     tracker1.size = outputs['size']
-
                     pred_bbox = outputs['bbox']
 
-                    overlap = vot_overlap(pred_bbox, gt_bbox, (img.shape[1], img.shape[0]))
-                    if overlap > 0:
-                        # not lost
-                        pred_bboxes.append(pred_bbox)
-                        lost = False
+                    if args.dataset != 'OTB100':
+                        overlap = vot_overlap(pred_bbox, gt_bbox, (img.shape[1], img.shape[0]))
+                        if overlap > 0:
+                            # not lost
+                            pred_bboxes.append(pred_bbox)
+                            lost = False
+                        else:
+                            # lost object
+                            pred_bboxes.append(2)
+                            frame_counter = idx + 5  # skip 5 frames
+                            lost_number += 1
+                            lost = True
                     else:
-                        # lost object
-                        pred_bboxes.append(2)
-                        frame_counter = idx + 5  # skip 5 frames
-                        lost_number += 1
-                        lost = True
+                        pred_bboxes.append(pred_bbox)
+
                 else:
                     pred_bboxes.append(0)
 
                 toc += cv2.getTickCount() - tic
 
+                end_t = 0
                 ##########################################
                 # # # # #  adversarial tracking  # # # # #
                 ##########################################
@@ -281,7 +287,6 @@ def main():
 
                 elif idx > frame_counter_adv:
 
-                    end_at = 0
                     for i in range(0, args.epochs):
                         _outputs = tracker2.track(img, attacker=attacker, epsilon=args.epsilon, zf=zf2, idx=idx, iter=i)
                         # print(_outputs['best_score'], outputs['target_score'])
@@ -301,7 +306,7 @@ def main():
                         total_loss = l1 + l3 + 0.4 * l2
                         # total_loss = l1 + 0.4 * l2
 
-                        print(idx, i, total_loss.item(), _outputs['center_pos'], _outputs['size'])
+                        # print(idx, i, total_loss.item(), _outputs['center_pos'], _outputs['size'])
 
                         # if ad_overlap < 0.5:
                         if _outputs['best_score'] < outputs['target_score']:
@@ -322,7 +327,7 @@ def main():
                             total_loss.backward(retain_graph=True)
                             optimizer.step()
 
-                        end_at = i+1
+                        end_t = i
 
                     filename = os.path.join(args.savedir, video.name, 'bb' + str(idx).zfill(6) + '.jpg')
                     save_2bb(img, filename, ad_bbox, pred_bbox, gt_bbox)
@@ -339,17 +344,20 @@ def main():
                     # pred_bbox = outputs['bbox']
                     # ad_bbox = _outputs['bbox']
 
-                    ad_overlap = vot_overlap(ad_bbox, gt_bbox, (img.shape[1], img.shape[0]))
-                    if ad_overlap > 0:
-                        # not lost
-                        pred_bboxes_adv.append(ad_bbox)
-                        lost_adv = False
+                    if args.dataset != 'OTB100':
+                        ad_overlap = vot_overlap(ad_bbox, gt_bbox, (img.shape[1], img.shape[0]))
+                        if ad_overlap > 0:
+                            # not lost
+                            pred_bboxes_adv.append(ad_bbox)
+                            lost_adv = False
+                        else:
+                            # lost object
+                            pred_bboxes_adv.append(2)
+                            frame_counter_adv = idx + 5  # skip 5 frames
+                            lost_number_adv += 1
+                            lost_adv = True
                     else:
-                        # lost object
-                        pred_bboxes_adv.append(2)
-                        frame_counter_adv = idx + 5  # skip 5 frames
-                        lost_number_adv += 1
-                        lost_adv = True
+                        pred_bboxes_adv.append(ad_bbox)
                 else:
                     pred_bboxes_adv.append(0)
 
@@ -375,7 +383,7 @@ def main():
 
                 out.write(img)
 
-                print('frame {}/{}'.format(idx, len(video)))
+                print('frame {}/{} -> {} epochs'.format(idx, len(video), end_t))
 
             toc /= cv2.getTickFrequency()
 
