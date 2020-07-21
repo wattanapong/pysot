@@ -123,6 +123,7 @@ def main():
     elif args.dataset in ['VOT2016', 'VOT2017', 'VOT2018', 'VOT2019']:
         dataset = VOTDataset(args.dataset, dataset_dir, config=cfg)
         dataset.set_tracker(os.path.join(args.tracker_path, args.dataset), trackers)
+
         ar_benchmark = AccuracyRobustnessBenchmark(dataset)
         ar_result = {}
         with Pool(processes=args.num) as pool:
@@ -138,6 +139,7 @@ def main():
                 eao_result.update(ret)
         ar_benchmark.show_result(ar_result, eao_result,
                 show_video_level=args.show_video_level)
+
     elif 'VOT2018-LT' == args.dataset:
         dataset = VOTLTDataset(args.dataset, root)
         dataset.set_tracker(dataset_dir, trackers)

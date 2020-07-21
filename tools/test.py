@@ -37,7 +37,7 @@ parser.add_argument('--vis', action='store_true',
         help='whether visualzie result')
 args = parser.parse_args()
 
-torch.set_num_threads(1)
+# torch.set_num_threads(1)
 
 def main():
     # load config
@@ -58,6 +58,8 @@ def main():
     # create dataset
     dataset = DatasetFactory.create_dataset(name=args.dataset,
                                             dataset_root=dataset_root,
+                                            dataset_toolkit='oneshot',
+                                            config=cfg,
                                             load_img=False)
 
     model_name = args.snapshot.split('/')[-1].split('.')[0]
