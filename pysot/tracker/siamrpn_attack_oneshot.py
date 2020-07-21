@@ -127,7 +127,7 @@ class SiamRPNAttackOneShot(SiameseTracker):
 
         top_pred_box = pred_box[:, sort_idx[0]]
         # pdb.set_trace()
-        w_inverse = a + b * torch.tanh(c * (pred_box[:, sort_idx[0:45]] - top_pred_box[:, None]))
+        w_inverse = a + b * torch.tanh(c * (pred_box[:2, sort_idx[0:45]] - top_pred_box[:2, None]))
         l1 = torch.sum(pscore[sort_idx[:45]] / w_inverse) - torch.sum(pscore[sort_idx[90:135]])
 
         w_inverse = a_ + b_ * torch.tanh(c_ * (self.zf_min - self.zf_mean))
@@ -156,7 +156,7 @@ class SiamRPNAttackOneShot(SiameseTracker):
         #         distance[idx] =
         #
         #
-        l3 = -torch.norm(pred_box[:, sort_idx[0:45]] - top_pred_box[:, None])
+        l3 = -torch.norm(pred_box[:2, sort_idx[0:45]] - top_pred_box[:2, None])
         # pdb.set_trace()
 
         # w_inverse = a_ + b_ * torch.tanh(c_ * (self.z_crop_min - self.z_crop_mean))
