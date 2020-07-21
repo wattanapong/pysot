@@ -326,8 +326,8 @@ def main():
 
                     filename = os.path.join(args.savedir, video.name, 'bb' + str(idx).zfill(6) + '.jpg')
                     save_2bb(img, filename, ad_bbox, pred_bbox, gt_bbox)
-                    _zimg = save(zimg, tracker2.z_crop_adv, sz, init_gt, pad,
-                                     os.path.join(args.savedir, video.name, str(idx).zfill(6) + '.jpg'), save=True)
+                    # _zimg = save(zimg, tracker2.z_crop_adv, sz, init_gt, pad,
+                    #                  os.path.join(args.savedir, video.name, str(idx).zfill(6) + '.jpg'), save=True)
 
                     # _zimg = save(zimg, tracker2.z_crop_adv, sz, init_gt, pad, os.path.join(args.savedir, video.name, str(idx).zfill(6) +'.jpg'), save=True)
 
