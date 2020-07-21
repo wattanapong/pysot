@@ -40,9 +40,13 @@ def main():
     cfg.merge_from_file(args.config)
 
     dataset_dir = os.path.join(args.dataset_path, args.dataset)
+
+    tracker_path = os.path.join(args.tracker_path, args.dataset)
+
     trackers = glob(os.path.join(args.tracker_path,
                                  args.dataset,
                                  args.tracker_prefix+'*'))
+
     trackers = [os.path.basename(x) for x in trackers]
 
     assert len(trackers) > 0
@@ -52,8 +56,9 @@ def main():
                             '../testing_dataset'))
     root = os.path.join(root, args.dataset)
     if 'OTB' in args.dataset:
-        dataset = OTBDataset(args.dataset, root)
-        dataset.set_tracker(dataset_dir, trackers)
+        # dataset = OTBDataset(args.dataset, root)
+        dataset = OTBDataset(args.dataset, dataset_dir, dataset_toolkit='oneshot', config=cfg)
+        dataset.set_tracker(tracker_path, trackers)
         benchmark = OPEBenchmark(dataset)
         success_ret = {}
         with Pool(processes=args.num) as pool:

@@ -105,6 +105,7 @@ class OTBOneShotVideo(VideoOneShot):
         for name in tracker_names:
             traj_file = os.path.join(path, name, self.name+'.txt')
             if not os.path.exists(traj_file):
+                # print(traj_file, ' does not exist')
                 if self.name == 'FleetFace':
                     txt_name = 'fleetface.txt'
                 elif self.name == 'Jogging-1':
@@ -124,6 +125,7 @@ class OTBOneShotVideo(VideoOneShot):
                 else:
                     txt_name = self.name[0].lower()+self.name[1:]+'.txt'
                 traj_file = os.path.join(path, name, txt_name)
+                print(traj_file, ' does not exist')
             if os.path.exists(traj_file):
                 with open(traj_file, 'r') as f :
                     pred_traj = [list(map(float, x.strip().split(',')))
