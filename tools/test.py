@@ -141,6 +141,12 @@ def main():
     else:
         # OPE tracking
         for v_idx, video in enumerate(dataset):
+
+            # set writing video parameters
+            height, width, channels = video[0][0].shape
+            out = cv2.VideoWriter(os.path.join('/media/wattanapongsu/4T/temp/save/OTB100/temp', video.name + '.avi'),
+                                  cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'), 15, (width, height))
+
             if args.video != '':
                 # test one special video
                 if video.name != args.video:
@@ -151,9 +157,9 @@ def main():
             track_times = []
             for idx, (img, gt_bbox) in enumerate(video):
                 tic = cv2.getTickCount()
+                cx, cy, w, h = get_axis_aligned_bbox(np.array(gt_bbox))
+                gt_bbox_ = [cx - (w - 1) / 2, cy - (h - 1) / 2, w, h]
                 if idx == 0:
-                    cx, cy, w, h = get_axis_aligned_bbox(np.array(gt_bbox))
-                    gt_bbox_ = [cx-(w-1)/2, cy-(h-1)/2, w, h]
                     tracker.init(img, gt_bbox_)
                     pred_bbox = gt_bbox_
                     scores.append(None)
@@ -180,6 +186,19 @@ def main():
                     cv2.putText(img, str(idx), (40, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
                     cv2.imshow(video.name, img)
                     cv2.waitKey(1)
+
+                if idx > 0:
+                    bbox = list(map(int, pred_bbox))
+                    cv2.rectangle(img, (bbox[0], bbox[1]),
+                              (bbox[0] + bbox[2], bbox[1] + bbox[3]), (0, 255, 255), 3)
+
+                __gt_bbox = list(map(int, gt_bbox_))
+                cv2.rectangle(img, (__gt_bbox[0], __gt_bbox[1]),
+                              (__gt_bbox[0]+__gt_bbox[2], __gt_bbox[1]+__gt_bbox[3]), (0, 0, 0), 3)
+
+                cv2.putText(img, str(idx), (40, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
+                out.write(img)
+
             toc /= cv2.getTickFrequency()
             # save results
             if 'VOT2018-LT' == args.dataset:

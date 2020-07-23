@@ -23,9 +23,9 @@ class ModelAttacker(nn.Module):
         self.adv = nn.Parameter(torch.rand([1, 3, 127, 127], requires_grad=True, dtype=torch.float))
 
     def perturb(self, img, epsilon):
-        x = (self.adv - self.adv.min()) / (self.adv.max() - self.adv.min())
-        x = epsilon * (2 * x - 1)
-        x = img - x
+        # x = (self.adv - self.adv.min()) / (self.adv.max() - self.adv.min())
+        # x = epsilon * (2 * x - 1)
+        x = img + (epsilon * self.adv - 8)
         x[x > 255] = 255
         x[x < 0] = 0
         return x

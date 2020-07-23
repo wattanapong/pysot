@@ -1,4 +1,3 @@
-# Copyright (c) SenseTime. All Rights Reserved.
 
 from __future__ import absolute_import
 from __future__ import division
@@ -54,27 +53,6 @@ parser.add_argument('--epochs', default='2 0', type=int,
 parser.add_argument('--vis', action='store_true',
         help='whether visualize result')
 args = parser.parse_args()
-
-torch.set_num_threads(6)
-
-# FGSM attack code
-def fgsm_attack(image, epsilon, data_grad):
-    # Collect the element-wise sign of the data gradient
-    sign_data_grad = data_grad.sign()
-
-    # Create the perturbed image by adjusting each pixel of the input image
-    perturbed_image = image + epsilon * sign_data_grad
-    # Adding clipping to maintain [0,1] range
-
-    perturbed_image = torch.clamp(perturbed_image, 0, 1)
-    # Return the perturbed image
-    return perturbed_image
-
-def BNtoFixed(m):
-    class_name = m.__class__.__name__
-    if class_name.find('BatchNorm') != -1:
-        m.eval()
-
 
 def save(img, imga, szx, boxx, pad, filename, save=False):
     if save:
@@ -153,16 +131,12 @@ def main():
     lr = args.lr
 
     # load model
-    track_model1 = load_pretrain(track_model1, args.snapshot)
-    track_model2 = load_pretrain(track_model2, args.snapshot)
-
-    clipper = WeightClipper(5)
+    track_model1 = load_pretrain(track_model1, args.snapshot).cuda().eval()
+    track_model2 = load_pretrain(track_model2, args.snapshot).cuda().eval()
 
     # build tracker
     tracker1 = build_tracker(track_model1)
     tracker2 = build_tracker(track_model2)
-    tracker1.model.cuda().eval()
-    tracker2.model.cuda().eval()
 
     attacker = ModelAttacker().cuda().train()
     optimizer = optim.Adam(attacker.parameters(), lr=lr)
@@ -181,6 +155,13 @@ def main():
     model_name = args.snapshot.split('/')[-1].split('.')[0]
     total_lost = 0
     n_epochs = args.epochs
+
+    for name, param in tracker1.model.named_parameters():
+        param.requires_grad_(False)
+
+    for name, param in tracker2.model.named_parameters():
+        if 'backbone' in name or 'neck' in name or 'rpn_head' in name:
+            param.requires_grad_(False)
 
     # for name, param in tracker2.model.named_parameters():
     #     if 'backbone' in name or 'neck' in name or 'rpn_head' in name:
@@ -407,4 +388,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
