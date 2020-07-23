@@ -33,8 +33,8 @@ class ModelAttacker(nn.Module):
 
     def template(self, z, tracker, epsilon=0):
         if epsilon != 0:
-            _z = self.perturb(z, epsilon)
-            zf = tracker.backbone(_z)
+            z = self.perturb(z, epsilon)
+            zf = tracker.backbone(z)
 
         else:
             zf = tracker.backbone(z)
@@ -43,23 +43,22 @@ class ModelAttacker(nn.Module):
             zf = tracker.neck(zf)
 
         self.zf = zf
+        self.z = z
 
-        return _z if epsilon != 0 else z
+        return z
 
     def track(self, x, tracker, iter=0):
 
-        if iter == 0:
-            xf = tracker.backbone(x)
-            if cfg.MASK.MASK:
-                self.xf = xf[:-1]
-                xf = xf[-1]
-            if cfg.ADJUST.ADJUST:
-                xf = tracker.neck(xf)
+        xf = tracker.backbone(x)
+        if cfg.MASK.MASK:
+            self.xf = xf[:-1]
+            xf = xf[-1]
+        if cfg.ADJUST.ADJUST:
+            xf = tracker.neck(xf)
 
-            self.xf = xf
+        xf = xf
 
-        cls, loc = tracker.rpn_head(self.zf, self.xf)
-
+        cls, loc = tracker.rpn_head(self.zf, xf)
         return {
                 'cls': cls,
                 'loc': loc

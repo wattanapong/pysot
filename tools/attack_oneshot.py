@@ -159,8 +159,12 @@ def main():
     # for name, param in tracker1.model.named_parameters():
     #     param.requires_grad_(False)
     #
-    # for name, param in tracker2.model.named_parameters():
-    #     param.requires_grad_(False)
+    for name, param in tracker2.model.named_parameters():
+        param.requires_grad_(False)
+
+    # for name, param in attacker.named_parameters():
+    #     if 'backbone' in name or 'neck' in name or 'rpn_head' in name:
+    #         param.requires_grad_(False)
 
     # for name, param in tracker2.model.named_parameters():
     #     if 'backbone' in name or 'neck' in name or 'rpn_head' in name:
@@ -281,7 +285,7 @@ def main():
                             l2 = _outputs['l2']
                             l3 = _outputs['l3']
                             # total_loss = 0.8 * l1 + 0.4 * l2 + 1.2 * l3
-                            total_loss = l1 + l3 + 0.4 * l2
+                            total_loss = l1 + 0.4 * l2
                             # total_loss = l1 + 0.4 * l2
 
                             # print(idx, i, total_loss.item(), _outputs['center_pos'], _outputs['size'])
