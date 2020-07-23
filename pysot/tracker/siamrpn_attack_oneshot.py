@@ -222,9 +222,7 @@ class SiamRPNAttackOneShot(SiameseTracker):
 
         return _crop, sz, box, pad
 
-    def init(self, img, bbox, attacker=None, epsilon=0):
-
-        img = torch.from_numpy(img).type(torch.FloatTensor)
+    def init_default(self, img, bbox, attacker=None, epsilon=0):
 
         self.center_pos = np.array([bbox[0] + (bbox[2] - 1) / 2, bbox[1] + (bbox[3] - 1) / 2])
         self.size = np.array([bbox[2], bbox[3]])
@@ -234,7 +232,51 @@ class SiamRPNAttackOneShot(SiameseTracker):
         h_z = self.size[1] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
         s_z = round(np.sqrt(w_z * h_z))
 
-        self.channel_average = torch.mean(img, dim=(0, 1))
+        self.channel_average = np.mean(img, axis=(0, 1))
+
+        # get crop
+        self.z_crop, box, pad = self.get_subwindow_custom(img, self.center_pos,
+                                                          cfg.TRACK.EXEMPLAR_SIZE,
+                                                          s_z, self.channel_average)
+
+        h, w, _ = img.shape
+
+        box[0] = box[0] - pad[0]
+        box[1] = box[1] - pad[0]
+        box[2] = box[2] - pad[2]
+        box[3] = box[3] - pad[2]
+
+        box[0] = 0 if box[0] < 0 else box[0]
+        box[2] = 0 if box[2] < 0 else box[2]
+        box[1] = h - 1 if box[1] > h else box[1]
+        box[3] = w - 1 if box[3] > w else box[3]
+
+        if attacker is None:
+            self.model.template(self.z_crop, epsilon=0)
+            self.zf = torch.mean(torch.stack(self.model.zf), 0)
+        else:
+            attacker.template(self.z_crop, self.model, epsilon=0)
+            self.zf = torch.mean(torch.stack(attacker.zf), 0)
+
+        # self.model.template(self.z_crop, epsilon=0)
+        # self.zf = torch.mean(torch.stack(self.model.zf), 0)
+
+        return s_z, box, pad
+
+    def init(self, img, bbox, attacker=None, epsilon=0):
+
+        # img = torch.from_numpy(img).type(torch.FloatTensor)
+
+        self.center_pos = np.array([bbox[0] + (bbox[2] - 1) / 2, bbox[1] + (bbox[3] - 1) / 2])
+        self.size = np.array([bbox[2], bbox[3]])
+
+        # calculate z crop size
+        w_z = self.size[0] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
+        h_z = self.size[1] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
+        s_z = round(np.sqrt(w_z * h_z))
+
+        # self.channel_average = torch.mean(img, dim=(0, 1))
+        self.channel_average = np.mean(img, axis=(0, 1))
 
         self.z_crop, box, pad = self.get_subwindow_custom(img, self.center_pos,
                                         cfg.TRACK.EXEMPLAR_SIZE,
@@ -264,9 +306,95 @@ class SiamRPNAttackOneShot(SiameseTracker):
 
         return s_z, box, pad
 
+    def track_default(self, img, attacker=None, epsilon=0, zf=None, idx=0, iter=0, debug=False):
+        w_z = self.size[0] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
+        h_z = self.size[1] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
+
+        s_z = np.sqrt(w_z * h_z)
+        scale_z = cfg.TRACK.EXEMPLAR_SIZE / s_z
+        s_x = s_z * (cfg.TRACK.INSTANCE_SIZE / cfg.TRACK.EXEMPLAR_SIZE)
+        x_crop, _, _ = self.get_subwindow_custom(img, self.center_pos,
+                                    cfg.TRACK.INSTANCE_SIZE,
+                                    round(s_x), self.channel_average)
+
+        if attacker is None:
+            outputs = self.model.track(x_crop, iter)
+        else:
+            self.z_crop_adv = attacker.template(self.z_crop, self.model, epsilon)
+            self.zfa = torch.mean(torch.stack(attacker.zf), 0)
+            outputs = attacker.track(x_crop, self.model, iter)
+
+        score = self._convert_score(outputs['cls'], False)
+        pred_bbox = self._convert_bbox(outputs['loc'], self.anchors, False)
+
+        def change(r):
+            return np.maximum(r, 1. / r)
+
+        def sz(w, h):
+            pad = (w + h) * 0.5
+            return np.sqrt((w + pad) * (h + pad))
+
+        # scale penalty
+        s_c = change(sz(pred_bbox[2, :], pred_bbox[3, :]) /
+                     (sz(self.size[0] * scale_z, self.size[1] * scale_z)))
+
+        # aspect ratio penalty
+        r_c = change((self.size[0] / self.size[1]) /
+                     (pred_bbox[2, :] / pred_bbox[3, :]))
+        penalty = np.exp(-(r_c * s_c - 1) * cfg.TRACK.PENALTY_K)
+        pscore = penalty * score
+
+        # window penalty
+        pscore = pscore * (1 - cfg.TRACK.WINDOW_INFLUENCE) + \
+                 self.window * cfg.TRACK.WINDOW_INFLUENCE
+        best_idx = np.argmax(pscore)
+        sort_idx = np.argsort(-pscore)
+
+        bbox = pred_bbox[:, best_idx] / scale_z
+        lr = penalty[best_idx] * score[best_idx] * cfg.TRACK.LR
+
+        cx = bbox[0] + self.center_pos[0]
+        cy = bbox[1] + self.center_pos[1]
+
+        # smooth bbox
+        width = self.size[0] * (1 - lr) + bbox[2] * lr
+        height = self.size[1] * (1 - lr) + bbox[3] * lr
+
+        # clip boundary
+        cx, cy, width, height = self._bbox_clip(cx, cy, width,
+                                                height, img.shape[:2])
+
+        # udpate state
+        self.center_pos = np.array([cx, cy])
+        self.size = np.array([width, height])
+
+        bbox = [cx - width / 2,
+                cy - height / 2,
+                width,
+                height]
+        best_score = score[best_idx]
+
+        if zf is not None:
+            return {
+                    'bbox': bbox,
+                    'best_score': score[sort_idx[0]],
+                    'l1': 0,
+                    'l2': 0,
+                    'l3': 0,
+                    'center_pos': np.array([cx, cy]),
+                    'size': np.array([width, height])
+                   }
+        else:
+            return {
+                'bbox': bbox,
+                'best_score': score[sort_idx[0]],
+                'target_score': score[sort_idx[45 - 1]],
+                'center_pos': np.array([cx, cy]),
+                'size': np.array([width, height])
+            }
+
     def track(self, img, attacker=None, epsilon=0, zf=None, idx=0, iter=0, debug=False):
 
-        img = torch.from_numpy(img).type(torch.FloatTensor)
         w_z = self.size[0] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
         h_z = self.size[1] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
 
@@ -305,17 +433,16 @@ class SiamRPNAttackOneShot(SiameseTracker):
         r_c = change(torch.tensor(self.size[0]/self.size[1]).type(torch.float) / (pred_bbox[2, :]/pred_bbox[3, :]))
 
         penalty = torch.exp(-(r_c * s_c - 1) * cfg.TRACK.PENALTY_K).cuda()
-        pscore = penalty * score
         pscore_softmax = penalty * score_softmax
-        psort, sort_idx = torch.sort(-pscore_softmax)
-        best_idx = sort_idx[0]
-        bbox = pred_bbox[:, best_idx].data.cpu().numpy() / scale_z
 
-        # print(pred_bbox[:, sort_idx[:10].data.cpu().numpy()] / scale_z)
-        # print('********************************************')
         # window penalty
         pscore_softmax = pscore_softmax * torch.tensor(1 - cfg.TRACK.WINDOW_INFLUENCE, dtype=torch.float32).cuda() + \
-	torch.tensor(self.window * cfg.TRACK.WINDOW_INFLUENCE, dtype=torch.float32).cuda()
+        torch.tensor(self.window * cfg.TRACK.WINDOW_INFLUENCE, dtype=torch.float32).cuda()
+
+        _, sort_idx = torch.sort(-pscore_softmax)
+
+        best_idx = sort_idx[0]
+        bbox = pred_bbox[:, best_idx].data.cpu().numpy() / scale_z
 
         best_score = score_softmax[best_idx]
         lr = (penalty[best_idx] * best_score * cfg.TRACK.LR).data.cpu().numpy()
@@ -341,8 +468,6 @@ class SiamRPNAttackOneShot(SiameseTracker):
                 cv2.imwrite(os.path.join('/media/wattanapongsu/4T/temp/save', 'bag',
                                      'z' + str(idx).zfill(6) + '.jpg'), img2)
 
-        # print(idx, iter, bbox)
-        # pdb.set_trace()
         cx = bbox[0] + self.center_pos[0]
         cy = bbox[1] + self.center_pos[1]
 
@@ -353,9 +478,10 @@ class SiamRPNAttackOneShot(SiameseTracker):
         # clip boundary
         cx, cy, width, height = self._bbox_clip(cx, cy, width, height, img.shape[:2])
 
-        # udpate state
-        # self.center_pos = np.array([cx, cy])
-        # self.size = np.array([width, height])
+        # update state
+        if attacker is None:
+            self.center_pos = np.array([cx, cy])
+            self.size = np.array([width, height])
 
         bbox = [cx - width / 2,
                 cy - height / 2,
@@ -365,7 +491,7 @@ class SiamRPNAttackOneShot(SiameseTracker):
         if zf is not None:
             return {
                     'bbox': bbox,
-                    'best_score': score_softmax[sort_idx[0]],
+                    'best_score': score[sort_idx[0]],
                     'l1': l1,
                     'l2': l2,
                     'l3': l3,
@@ -375,8 +501,8 @@ class SiamRPNAttackOneShot(SiameseTracker):
         else:
             return {
                 'bbox': bbox,
-                'best_score': best_score,
-                'target_score': score_softmax[sort_idx[45 - 1]],
+                'best_score': score[sort_idx[0]],
+                'target_score': score[sort_idx[45 - 1]],
                 'center_pos': np.array([cx, cy]),
                 'size': np.array([width, height])
             }
@@ -434,16 +560,14 @@ class SiamRPNAttackOneShot(SiameseTracker):
                           int(context_xmin):int(context_xmax + 1), :]
 
         if torch.is_tensor(im_patch):
-            im_patch = im_patch.permute(2, 0, 1).type(torch.FloatTensor).unsqueeze(0)
-            if not np.array_equal(model_sz, original_sz):
-                im_patch = F.interpolate(im_patch, size=[model_sz, model_sz])
-        else:
-            if not np.array_equal(model_sz, original_sz):
-                im_patch = cv2.resize(im_patch, (model_sz, model_sz))
-            im_patch = im_patch.transpose(2, 0, 1)
-            im_patch = im_patch[np.newaxis, :, :, :]
-            im_patch = im_patch.astype(np.float32)
-            im_patch = torch.from_numpy(im_patch)
+            im_patch = im_patch.data.cpu().numpy()
+
+        if not np.array_equal(model_sz, original_sz):
+            im_patch = cv2.resize(im_patch, (model_sz, model_sz))
+        im_patch = im_patch.transpose(2, 0, 1)
+        im_patch = im_patch[np.newaxis, :, :, :]
+        im_patch = im_patch.astype(np.float32)
+        im_patch = torch.from_numpy(im_patch)
 
         if cfg.CUDA:
             im_patch = im_patch.cuda()

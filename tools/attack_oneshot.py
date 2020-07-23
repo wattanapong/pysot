@@ -156,12 +156,11 @@ def main():
     total_lost = 0
     n_epochs = args.epochs
 
-    for name, param in tracker1.model.named_parameters():
-        param.requires_grad_(False)
-
-    for name, param in tracker2.model.named_parameters():
-        if 'backbone' in name or 'neck' in name or 'rpn_head' in name:
-            param.requires_grad_(False)
+    # for name, param in tracker1.model.named_parameters():
+    #     param.requires_grad_(False)
+    #
+    # for name, param in tracker2.model.named_parameters():
+    #     param.requires_grad_(False)
 
     # for name, param in tracker2.model.named_parameters():
     #     if 'backbone' in name or 'neck' in name or 'rpn_head' in name:
@@ -217,24 +216,18 @@ def main():
                 ##########################################
 
                 if idx == frame_counter:
-                    init_gt = gt_bbox_
                     tracker1.init(img, gt_bbox_)
                     pred_bboxes.append(1)
-                    zf = tracker1.zf
-                    img1 = img.copy()
 
                 elif idx > frame_counter:
 
                     outputs = tracker1.track(img, idx=idx)
 
                     # print('****************** state of the art tracking ******************')
-                    # update state
-                    tracker1.center_pos = outputs['center_pos']
-                    tracker1.size = outputs['size']
                     pred_bbox = outputs['bbox']
 
+                    overlap = vot_overlap(pred_bbox, gt_bbox, (img.shape[1], img.shape[0]))
                     if args.dataset != 'OTB100':
-                        overlap = vot_overlap(pred_bbox, gt_bbox, (img.shape[1], img.shape[0]))
                         if overlap > 0:
                             # not lost
                             pred_bboxes.append(pred_bbox)
@@ -246,6 +239,8 @@ def main():
                             lost_number += 1
                             lost = True
                     else:
+                        if overlap <= 0:
+                            lost_number += 1
                         pred_bboxes.append(pred_bbox)
 
                 else:
@@ -257,90 +252,92 @@ def main():
                 ##########################################
                 # # # # #  adversarial tracking  # # # # #
                 ##########################################
+                skip = False
 
-                if idx == frame_counter_adv:
-                    zimg = img.copy()
-                    sz, bbox, pad = tracker2.init(img, gt_bbox_, attacker=attacker, epsilon=args.epsilon)
-                    pred_bboxes_adv.append(1)
-                    zf2 = tracker2.zf
+                if not skip:
+                    if idx == frame_counter_adv:
+                        zimg = img.copy()
+                        sz, bbox, pad = tracker2.init(img, gt_bbox_, attacker=attacker, epsilon=args.epsilon)
+                        pred_bboxes_adv.append(1)
+                        zf2 = tracker2.zf
 
-                    # cv2.imwrite(os.path.join(args.savedir, video.name, str(idx).zfill(6) +'.jpg'), img)
+                        # cv2.imwrite(os.path.join(args.savedir, video.name, str(idx).zfill(6) +'.jpg'), img)
 
-                elif idx > frame_counter_adv:
+                    elif idx > frame_counter_adv:
 
-                    for i in range(0, args.epochs):
-                        _outputs = tracker2.track(img, attacker=attacker, epsilon=args.epsilon, zf=zf2, idx=idx, iter=i)
-                        # print(_outputs['best_score'], outputs['target_score'])
+                        for i in range(0, args.epochs):
+                            _outputs = tracker2.track(img, attacker=attacker, epsilon=args.epsilon, zf=zf2, idx=idx, iter=i)
+                            # print(_outputs['best_score'], outputs['target_score'])
 
-                        ad_bbox = _outputs['bbox']
-                        ad_overlap = vot_overlap(ad_bbox, gt_bbox, (img.shape[1], img.shape[0]))
+                            ad_bbox = _outputs['bbox']
+                            ad_overlap = vot_overlap(ad_bbox, gt_bbox, (img.shape[1], img.shape[0]))
 
-                        # filename = os.path.join(args.savedir, video.name, str(idx).zfill(6) +'.jpg')
-                        # save_2bb(img, filename, ad_bbox, pred_bbox, gt_bbox)
-
-                        # if _outputs['best_score'] < outputs['target_score']:
-
-                        l1 = _outputs['l1']
-                        l2 = _outputs['l2']
-                        l3 = _outputs['l3']
-                        # total_loss = 0.8 * l1 + 0.4 * l2 + 1.2 * l3
-                        total_loss = l1 + l3 + 0.4 * l2
-                        # total_loss = l1 + 0.4 * l2
-
-                        # print(idx, i, total_loss.item(), _outputs['center_pos'], _outputs['size'])
-
-                        # if ad_overlap < 0.5:
-                        if _outputs['best_score'] < outputs['target_score']:
-                            total_loss_val = 0
-                            # print(idx, i, ad_overlap)
-                            # print(ad_bbox)
-                            # print(pred_bbox)
-                            # print('------------------------')
-                            # filename = os.path.join(args.savedir, video.name, 'bb' + str(idx).zfill(6) + '.jpg')
+                            # filename = os.path.join(args.savedir, video.name, str(idx).zfill(6) +'.jpg')
                             # save_2bb(img, filename, ad_bbox, pred_bbox, gt_bbox)
-                            # _zimg = save(zimg, tracker2.z_crop_adv, sz, init_gt, pad,
-                            #              os.path.join(args.savedir, video.name, str(idx).zfill(6) + '.jpg'), save=True)
-                            # pdb.set_trace()
-                            break
+
+                            # if _outputs['best_score'] < outputs['target_score']:
+
+                            l1 = _outputs['l1']
+                            l2 = _outputs['l2']
+                            l3 = _outputs['l3']
+                            # total_loss = 0.8 * l1 + 0.4 * l2 + 1.2 * l3
+                            total_loss = l1 + l3 + 0.4 * l2
+                            # total_loss = l1 + 0.4 * l2
+
+                            # print(idx, i, total_loss.item(), _outputs['center_pos'], _outputs['size'])
+
+                            # if ad_overlap < 0.5:
+                            if _outputs['best_score'] < outputs['target_score']:
+                                total_loss_val = 0
+                                # print(idx, i, ad_overlap)
+                                # print(ad_bbox)
+                                # print(pred_bbox)
+                                # print('------------------------')
+                                # filename = os.path.join(args.savedir, video.name, 'bb' + str(idx).zfill(6) + '.jpg')
+                                # save_2bb(img, filename, ad_bbox, pred_bbox, gt_bbox)
+                                # _zimg = save(zimg, tracker2.z_crop_adv, sz, init_gt, pad,
+                                #              os.path.join(args.savedir, video.name, str(idx).zfill(6) + '.jpg'), save=True)
+                                # pdb.set_trace()
+                                break
+                            else:
+                                # print(_outputs['bbox'])
+                                optimizer.zero_grad()
+                                total_loss.backward(retain_graph=True)
+                                optimizer.step()
+
+                            end_t = i
+
+                        filename = os.path.join(args.savedir, video.name, 'bb' + str(idx).zfill(6) + '.jpg')
+                        save_2bb(img, filename, ad_bbox, pred_bbox, gt_bbox)
+                        # _zimg = save(zimg, tracker2.z_crop_adv, sz, init_gt, pad,
+                        #                  os.path.join(args.savedir, video.name, str(idx).zfill(6) + '.jpg'), save=True)
+
+                        # _zimg = save(zimg, tracker2.z_crop_adv, sz, init_gt, pad, os.path.join(args.savedir, video.name, str(idx).zfill(6) +'.jpg'), save=True)
+
+                        # update state
+                        tracker2.center_pos = _outputs['center_pos']
+                        tracker2.size = _outputs['size']
+
+                        # pdb.set_trace()
+                        # pred_bbox = outputs['bbox']
+                        # ad_bbox = _outputs['bbox']
+
+                        if args.dataset != 'OTB100':
+                            ad_overlap = vot_overlap(ad_bbox, gt_bbox, (img.shape[1], img.shape[0]))
+                            if ad_overlap > 0:
+                                # not lost
+                                pred_bboxes_adv.append(ad_bbox)
+                                lost_adv = False
+                            else:
+                                # lost object
+                                pred_bboxes_adv.append(2)
+                                frame_counter_adv = idx + 5  # skip 5 frames
+                                lost_number_adv += 1
+                                lost_adv = True
                         else:
-                            # print(_outputs['bbox'])
-                            optimizer.zero_grad()
-                            total_loss.backward(retain_graph=True)
-                            optimizer.step()
-
-                        end_t = i
-
-                    filename = os.path.join(args.savedir, video.name, 'bb' + str(idx).zfill(6) + '.jpg')
-                    save_2bb(img, filename, ad_bbox, pred_bbox, gt_bbox)
-                    # _zimg = save(zimg, tracker2.z_crop_adv, sz, init_gt, pad,
-                    #                  os.path.join(args.savedir, video.name, str(idx).zfill(6) + '.jpg'), save=True)
-
-                    # _zimg = save(zimg, tracker2.z_crop_adv, sz, init_gt, pad, os.path.join(args.savedir, video.name, str(idx).zfill(6) +'.jpg'), save=True)
-
-                    # update state
-                    tracker2.center_pos = _outputs['center_pos']
-                    tracker2.size = _outputs['size']
-
-                    # pdb.set_trace()
-                    # pred_bbox = outputs['bbox']
-                    # ad_bbox = _outputs['bbox']
-
-                    if args.dataset != 'OTB100':
-                        ad_overlap = vot_overlap(ad_bbox, gt_bbox, (img.shape[1], img.shape[0]))
-                        if ad_overlap > 0:
-                            # not lost
                             pred_bboxes_adv.append(ad_bbox)
-                            lost_adv = False
-                        else:
-                            # lost object
-                            pred_bboxes_adv.append(2)
-                            frame_counter_adv = idx + 5  # skip 5 frames
-                            lost_number_adv += 1
-                            lost_adv = True
                     else:
-                        pred_bboxes_adv.append(ad_bbox)
-                else:
-                    pred_bboxes_adv.append(0)
+                        pred_bboxes_adv.append(0)
 
                 # pdb.set_trace()
 

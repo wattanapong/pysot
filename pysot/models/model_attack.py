@@ -15,6 +15,7 @@ from pysot.models.backbone import get_backbone
 from pysot.models.head import get_rpn_head, get_mask_head, get_refine_head
 from pysot.models.neck import get_neck
 
+torch.manual_seed(0)
 
 class ModelAttacker(nn.Module):
     def __init__(self):

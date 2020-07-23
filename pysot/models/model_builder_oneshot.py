@@ -45,9 +45,9 @@ class ModelBuilder(nn.Module):
                 self.refine_head = get_refine_head(cfg.REFINE.TYPE)
 
     def perturb(self, img, epsilon):
-        x = (self.adv - self.adv.min()) / (self.adv.max() - self.adv.min())
-        x = epsilon * (2 * x - 1)
-        x = img - x
+        # x = (self.adv - self.adv.min()) / (self.adv.max() - self.adv.min())
+        x = epsilon * (2 * self.adv - 1)
+        x = img + x
         x[x > 255] = 255
         x[x < 0] = 0
         return x
@@ -78,17 +78,14 @@ class ModelBuilder(nn.Module):
 
     def track(self, x, iter=0):
 
-        if iter == 0:
-            xf = self.backbone(x)
-            if cfg.MASK.MASK:
-                self.xf = xf[:-1]
-                xf = xf[-1]
-            if cfg.ADJUST.ADJUST:
-                xf = self.neck(xf)
+        xf = self.backbone(x)
+        if cfg.MASK.MASK:
+            self.xf = xf[:-1]
+            xf = xf[-1]
+        if cfg.ADJUST.ADJUST:
+            xf = self.neck(xf)
 
-            self.xf = xf
-
-        cls, loc = self.rpn_head(self.zf, self.xf)
+        cls, loc = self.rpn_head(self.zf, xf)
         if cfg.MASK.MASK:
             mask, self.mask_corr_feature = self.mask_head(self.zf, xf)
         return {
