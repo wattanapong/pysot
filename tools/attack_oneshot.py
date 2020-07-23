@@ -156,8 +156,8 @@ def main():
     total_lost = 0
     n_epochs = args.epochs
 
-    # for name, param in tracker1.model.named_parameters():
-    #     param.requires_grad_(False)
+    for name, param in tracker1.model.named_parameters():
+        param.requires_grad_(False)
     #
     for name, param in tracker2.model.named_parameters():
         param.requires_grad_(False)
@@ -306,7 +306,7 @@ def main():
                             else:
                                 # print(_outputs['bbox'])
                                 optimizer.zero_grad()
-                                total_loss.backward(retain_graph=True)
+                                total_loss.backward()
                                 optimizer.step()
 
                             end_t = i

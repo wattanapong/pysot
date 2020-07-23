@@ -8,6 +8,7 @@ from __future__ import unicode_literals
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import pdb
 
 from pysot.core.config import cfg
 from pysot.models.loss import select_cross_entropy_loss, weight_l1_loss
@@ -26,7 +27,7 @@ class ModelAttacker(nn.Module):
     def perturb(self, img, epsilon):
         # x = (self.adv - self.adv.min()) / (self.adv.max() - self.adv.min())
         # x = epsilon * (2 * x - 1)
-        x = img + (epsilon * self.adv - 8)
+        x = img + epsilon * (2 * self.adv - 1)
         x[x > 255] = 255
         x[x < 0] = 0
         return x
@@ -35,7 +36,6 @@ class ModelAttacker(nn.Module):
         if epsilon != 0:
             z = self.perturb(z, epsilon)
             zf = tracker.backbone(z)
-
         else:
             zf = tracker.backbone(z)
 
@@ -56,9 +56,8 @@ class ModelAttacker(nn.Module):
         if cfg.ADJUST.ADJUST:
             xf = tracker.neck(xf)
 
-        xf = xf
-
         cls, loc = tracker.rpn_head(self.zf, xf)
+
         return {
                 'cls': cls,
                 'loc': loc

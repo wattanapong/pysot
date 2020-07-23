@@ -127,7 +127,12 @@ class SiamRPNAttackOneShot(SiameseTracker):
 
         top_pred_box = pred_box[:, sort_idx[0]]
         # pdb.set_trace()
-        w_inverse = a + b * torch.tanh(c * (pred_box[:2, sort_idx[0:45]] - top_pred_box[:2, None]))
+
+        coordinate_box = torch.cat((pred_box[:2, sort_idx[0:45]] - pred_box[2:4, sort_idx[0:45]]/2,
+                                   pred_box[:2, sort_idx[0:45]] + pred_box[2:4, sort_idx[0:45]] / 2), dim=0)
+
+        # w_inverse = a + b * torch.tanh(c * (pred_box[:2, sort_idx[0:45]] - top_pred_box[:2, None])/scale_z)
+        w_inverse = a + b * torch.tanh(c * torch.sqrt((coordinate_box - coordinate_box[:, None])**2)/scale_z)
         l1 = torch.sum(pscore[sort_idx[:45]] / w_inverse) - torch.sum(pscore[sort_idx[90:135]])
 
         w_inverse = a_ + b_ * torch.tanh(c_ * (self.zf_min - self.zf_mean))
@@ -444,7 +449,7 @@ class SiamRPNAttackOneShot(SiameseTracker):
         best_idx = sort_idx[0]
         bbox = pred_bbox[:, best_idx].data.cpu().numpy() / scale_z
 
-        best_score = score_softmax[best_idx]
+        best_score = pscore_softmax[best_idx]
         lr = (penalty[best_idx] * best_score * cfg.TRACK.LR).data.cpu().numpy()
 
         if zf is not None:
@@ -491,7 +496,7 @@ class SiamRPNAttackOneShot(SiameseTracker):
         if zf is not None:
             return {
                     'bbox': bbox,
-                    'best_score': score[sort_idx[0]],
+                    'best_score': pscore_softmax[sort_idx[0]],
                     'l1': l1,
                     'l2': l2,
                     'l3': l3,
@@ -501,8 +506,8 @@ class SiamRPNAttackOneShot(SiameseTracker):
         else:
             return {
                 'bbox': bbox,
-                'best_score': score[sort_idx[0]],
-                'target_score': score[sort_idx[45 - 1]],
+                'best_score': pscore_softmax[sort_idx[0]],
+                'target_score': pscore_softmax[sort_idx[45 - 1]],
                 'center_pos': np.array([cx, cy]),
                 'size': np.array([width, height])
             }
