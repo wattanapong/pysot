@@ -48,7 +48,6 @@ def main():
                                  args.tracker_prefix+'*'))
 
     trackers = [os.path.basename(x) for x in trackers]
-
     assert len(trackers) > 0
     args.num = min(args.num, len(trackers))
 

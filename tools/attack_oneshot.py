@@ -263,8 +263,13 @@ def main():
                     if idx == frame_counter_adv:
                         zimg = img.copy()
                         sz, bbox, pad = tracker2.init(img, gt_bbox_, attacker=attacker, epsilon=args.epsilon)
-                        pred_bboxes_adv.append(1)
+
                         zf2 = tracker2.zf
+
+                        if args.dataset == 'OTB100':
+                            pred_bboxes_adv.append(gt_bbox_)
+                        else:
+                            pred_bboxes_adv.append(1)
 
                         # cv2.imwrite(os.path.join(args.savedir, video.name, str(idx).zfill(6) +'.jpg'), img)
 
@@ -364,24 +369,49 @@ def main():
                 cv2.putText(img, str(lost_number), (40, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
                 cv2.putText(img, ","+str(lost_number_adv), (80, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
-                out.write(img)
+                # out.write(img)
 
                 # print('frame {}/{} -> {} epochs'.format(idx, len(video), end_t))
 
             toc /= cv2.getTickFrequency()
 
             # save results
-            video_path = os.path.join('results', args.dataset, model_name,
-                    'baseline', video.name)
-            if not os.path.isdir(video_path):
-                os.makedirs(video_path)
-            result_path = os.path.join(video_path, '{}_001.txt'.format(video.name))
-            with open(result_path, 'w') as f:
-                for x in pred_bboxes:
-                    if isinstance(x, int):
-                        f.write("{:d}\n".format(x))
-                    else:
-                        f.write(','.join([vot_float2str("%.4f", i) for i in x])+'\n')
+            if args.dataset == 'OTB100':
+                model_path = os.path.join('results', args.dataset, model_name)
+                if not os.path.isdir(model_path):
+                    os.makedirs(model_path)
+                result_path = os.path.join(model_path, '{}.txt'.format(video.name))
+                with open(result_path, 'w') as f:
+                    for x in pred_bboxes:
+                        f.write(','.join([str(i) for i in x]) + '\n')
+            else:
+                video_path = os.path.join('results', args.dataset, model_name,
+                        'baseline', video.name)
+                if not os.path.isdir(video_path):
+                    os.makedirs(video_path)
+                result_path = os.path.join(video_path, '{}_001.txt'.format(video.name))
+
+                # ii = 0
+                # with open(result_path, 'r') as f:
+                #     xs = f.readlines()
+                #     for x in xs:
+                #         if ii == 0:
+                #             pred_bboxes_adv[0] = ','.join([vot_float2str("%.4f", i) for i in pred_bboxes_adv[0]]) + '\n'
+                #         else:
+                #             pred_bboxes_adv.append(x)
+                #         ii += 1
+                #
+                # with open(result_path, 'w') as f:
+                #     for x in pred_bboxes_adv:
+                #         f.write(x)
+
+                with open(result_path, 'w') as f:
+                    for x in pred_bboxes_adv:
+                        if isinstance(x, int):
+                            f.write("{:d}\n".format(x))
+                        else:
+                            f.write(','.join([vot_float2str("%.4f", i) for i in x])+'\n')
+
             print('({:3d}) Video: {:12s} Time: {:4.1f}s Speed: {:3.1f}fps Lost: {:d}'.format(
                     v_idx+1, video.name, toc, idx / toc, lost_number_adv))
             total_lost += lost_number_adv

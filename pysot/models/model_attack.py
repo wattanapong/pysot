@@ -49,14 +49,17 @@ class ModelAttacker(nn.Module):
 
     def track(self, x, tracker, iter=0):
 
-        xf = tracker.backbone(x)
-        if cfg.MASK.MASK:
-            self.xf = xf[:-1]
-            xf = xf[-1]
-        if cfg.ADJUST.ADJUST:
-            xf = tracker.neck(xf)
+        if iter == 0:
+            xf = tracker.backbone(x)
+            if cfg.MASK.MASK:
+                self.xf = xf[:-1]
+                xf = xf[-1]
+            if cfg.ADJUST.ADJUST:
+                xf = tracker.neck(xf)
 
-        cls, loc = tracker.rpn_head(self.zf, xf)
+            self.xf = xf
+
+        cls, loc = tracker.rpn_head(self.zf, self.xf)
 
         return {
                 'cls': cls,
