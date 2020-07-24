@@ -382,7 +382,7 @@ def main():
                     os.makedirs(model_path)
                 result_path = os.path.join(model_path, '{}.txt'.format(video.name))
                 with open(result_path, 'w') as f:
-                    for x in pred_bboxes:
+                    for x in pred_bboxes_adv:
                         f.write(','.join([str(i) for i in x]) + '\n')
             else:
                 video_path = os.path.join('results', args.dataset, model_name,
