@@ -125,20 +125,27 @@ class SiamRPNAttackOneShot(SiameseTracker):
 
         imh, imw, _ = shape
 
-        top_pred_box = pred_box[:, sort_idx[0]]
-        # pdb.set_trace()
-
-        coordinate_box = torch.cat((pred_box[:2, sort_idx[0:45]] - pred_box[2:4, sort_idx[0:45]]/2,
-                                   pred_box[:2, sort_idx[0:45]] + pred_box[2:4, sort_idx[0:45]] / 2), dim=0)
-
+        # top_pred_box = pred_box[:, sort_idx[0]]
         # w_inverse = a + b * torch.tanh(c * (pred_box[:2, sort_idx[0:45]] - top_pred_box[:2, None])/scale_z)
-        w_inverse = a + b * torch.tanh(c * torch.sqrt((coordinate_box - coordinate_box[:, None])**2)/scale_z)
+
+        # top_pred_box = sort_idx[0]
+        # w_inverse = a + b * torch.tanh(c * sort_idx[0:45] - sort_idx[0])
+
+        # coordinate_box = torch.cat((pred_box[:2, sort_idx[0:45]] - pred_box[2:4, sort_idx[0:45]]/2,
+        #                            pred_box[:2, sort_idx[0:45]] + pred_box[2:4, sort_idx[0:45]] / 2), dim=0)
+        # top_coordinate_box = coordinate_box[:, 0]
+        #
+        # w_inverse = a + b * torch.tanh(torch.sum(c * torch.sqrt((coordinate_box - top_coordinate_box[:, None])**2))/4/scale_z)
+
+        top_pred_box = pred_box[:2, sort_idx[0]]
+        w_inverse = a + b * torch.tanh(c * torch.norm((pred_box[:2, sort_idx[0:45]] - top_pred_box[:, None]) / scale_z, dim=0))
+
         l1 = torch.sum(pscore[sort_idx[:45]] / w_inverse) - torch.sum(pscore[sort_idx[90:135]])
 
-        w_inverse = a_ + b_ * torch.tanh(c_ * (self.zf_min - self.zf_mean))
+        w_inverse2 = a_ + b_ * torch.tanh(c_ * (self.zf_min - self.zf_mean))
 
         # maximize difference features from adversarial and original image
-        l2 = -torch.norm((self.zfa - self.zf)/w_inverse)
+        l2 = -torch.norm((self.zfa - self.zf0)/w_inverse2)
 
         # maximize union of all prediction boxes ( 1 - 45 )
 
@@ -161,7 +168,9 @@ class SiamRPNAttackOneShot(SiameseTracker):
         #         distance[idx] =
         #
         #
-        l3 = -torch.norm(pred_box[:2, sort_idx[0:45]] - top_pred_box[:2, None])
+        l3 = -torch.norm(pred_box[:2, sort_idx[0:45]])
+        # l3 = -torch.norm(pred_box[:2, sort_idx[0:45]] - top_pred_box[:2, None])
+        # l3 = torch.norm(coordinate_box - top_coordinate_box[:, None])/scale_z
         # pdb.set_trace()
 
         # w_inverse = a_ + b_ * torch.tanh(c_ * (self.z_crop_min - self.z_crop_mean))
@@ -446,16 +455,21 @@ class SiamRPNAttackOneShot(SiameseTracker):
 
         _, sort_idx = torch.sort(-pscore_softmax)
 
+        # if attacker is not None:
+        #     pdb.set_trace()
+
         best_idx = sort_idx[0]
         bbox = pred_bbox[:, best_idx].data.cpu().numpy() / scale_z
 
         best_score = pscore_softmax[best_idx]
         lr = (penalty[best_idx] * best_score * cfg.TRACK.LR).data.cpu().numpy()
 
-        if zf is not None:
+        if attacker is not None:
 
             if iter == 0:
-                self.zf = zf
+                self.target_score = score_softmax[sort_idx[45 - 1]]
+
+                self.zf0 = zf
                 self.zf_min, idx_min = torch.min(zf, 1)
                 self.zf_mean = torch.mean(zf, 1)
                 self.z_crop_min, _ = torch.min(self.z_crop, 1)
@@ -466,7 +480,7 @@ class SiamRPNAttackOneShot(SiameseTracker):
                 cv2.imwrite(os.path.join('/media/wattanapongsu/4T/temp/save', 'bag',
                                      'z'+str(idx).zfill(6)+'_'+str(iter).zfill(2)+'.jpg'), img2)
 
-            l1, l2, l3 = self.cls_loss(pscore_softmax, pred_bbox, sort_idx, scale_z, img.shape, lr)
+            l1, l2, l3 = self.cls_loss(score_softmax, pred_bbox, sort_idx, scale_z, img.shape, lr)
         else:
             if debug:
                 img2 = self.z_crop.data.cpu().numpy().squeeze().transpose([1, 2, 0])
@@ -496,7 +510,8 @@ class SiamRPNAttackOneShot(SiameseTracker):
         if zf is not None:
             return {
                     'bbox': bbox,
-                    'best_score': pscore_softmax[sort_idx[0]],
+                    'best_score': score_softmax[sort_idx[0]],
+                    'target_score': self.target_score,
                     'l1': l1,
                     'l2': l2,
                     'l3': l3,
@@ -506,8 +521,8 @@ class SiamRPNAttackOneShot(SiameseTracker):
         else:
             return {
                 'bbox': bbox,
-                'best_score': pscore_softmax[sort_idx[0]],
-                'target_score': pscore_softmax[sort_idx[45 - 1]],
+                'best_score': score_softmax[sort_idx[0]],
+                'target_score': score_softmax[sort_idx[45 - 1]],
                 'center_pos': np.array([cx, cy]),
                 'size': np.array([width, height])
             }

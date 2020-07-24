@@ -201,8 +201,8 @@ def main():
             pred_bboxes_adv = []
             lost = False
             lost_adv = False
-
-            for idx, (img, gt_bbox) in enumerate(video):
+            from tqdm import tqdm
+            for idx, (img, gt_bbox) in tqdm(enumerate(video)):
 
                 # if len(gt_bbox) == 4:
                 #     gt_bbox = [gt_bbox[0], gt_bbox[1],
@@ -220,6 +220,7 @@ def main():
                 ##########################################
 
                 if idx == frame_counter:
+                    init_gt = gt_bbox_
                     tracker1.init(img, gt_bbox_)
                     pred_bboxes.append(1)
 
@@ -291,7 +292,7 @@ def main():
                             # print(idx, i, total_loss.item(), _outputs['center_pos'], _outputs['size'])
 
                             # if ad_overlap < 0.5:
-                            if _outputs['best_score'] < outputs['target_score']:
+                            if _outputs['best_score'] < _outputs['target_score'] or ad_overlap <= 0:
                                 total_loss_val = 0
                                 # print(idx, i, ad_overlap)
                                 # print(ad_bbox)
@@ -304,7 +305,7 @@ def main():
                                 # pdb.set_trace()
                                 break
                             else:
-                                # print(_outputs['bbox'])
+                                # print(i, total_loss.item(), l1.item(), l2.item())
                                 optimizer.zero_grad()
                                 total_loss.backward()
                                 optimizer.step()
@@ -313,10 +314,8 @@ def main():
 
                         filename = os.path.join(args.savedir, video.name, 'bb' + str(idx).zfill(6) + '.jpg')
                         save_2bb(img, filename, ad_bbox, pred_bbox, gt_bbox)
-                        # _zimg = save(zimg, tracker2.z_crop_adv, sz, init_gt, pad,
-                        #                  os.path.join(args.savedir, video.name, str(idx).zfill(6) + '.jpg'), save=True)
-
-                        # _zimg = save(zimg, tracker2.z_crop_adv, sz, init_gt, pad, os.path.join(args.savedir, video.name, str(idx).zfill(6) +'.jpg'), save=True)
+                        _zimg = save(zimg, tracker2.z_crop_adv, sz, init_gt, pad,
+                                         os.path.join(args.savedir, video.name, str(idx).zfill(6) + '.jpg'), save=True)
 
                         # update state
                         tracker2.center_pos = _outputs['center_pos']
@@ -339,6 +338,8 @@ def main():
                                 lost_number_adv += 1
                                 lost_adv = True
                         else:
+                            if ad_overlap <= 0:
+                                lost_number_adv += 1
                             pred_bboxes_adv.append(ad_bbox)
                     else:
                         pred_bboxes_adv.append(0)
@@ -365,7 +366,7 @@ def main():
 
                 out.write(img)
 
-                print('frame {}/{} -> {} epochs'.format(idx, len(video), end_t))
+                # print('frame {}/{} -> {} epochs'.format(idx, len(video), end_t))
 
             toc /= cv2.getTickFrequency()
 

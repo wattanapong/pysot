@@ -26,8 +26,9 @@ class ModelAttacker(nn.Module):
 
     def perturb(self, img, epsilon):
         # x = (self.adv - self.adv.min()) / (self.adv.max() - self.adv.min())
-        # x = epsilon * (2 * x - 1)
+        # pdb.set_trace()
         x = img + epsilon * (2 * self.adv - 1)
+        x[x != x] = img[x != x]
         x[x > 255] = 255
         x[x < 0] = 0
         return x
@@ -43,7 +44,6 @@ class ModelAttacker(nn.Module):
             zf = tracker.neck(zf)
 
         self.zf = zf
-        self.z = z
 
         return z
 
