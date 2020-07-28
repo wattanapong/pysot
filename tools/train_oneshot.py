@@ -48,6 +48,8 @@ parser.add_argument('--epsilon', default='0.1', type=float,
                     help='fgsm epsilon')
 parser.add_argument('--mode', default=0, type=int,
                     help='train(1) or test(0) mode')
+parser.add_argument('--batch', default=200, type=int,
+                    help='batch size')
 parser.add_argument('--lr', default='1e-4', type=float,
                     help='learning rate')
 parser.add_argument('--epochs', default='2 0', type=int,
@@ -173,7 +175,7 @@ def adversarial_train(idx, frame_counter, state, attacker, tracker, optimizer, p
         tracker.init(img, gt_bbox_, attacker=attacker, epsilon=args.epsilon)
 
     for iter in range(0, args.epochs):
-        _outputs = tracker.train(img, attacker=attacker, epsilon=args.epsilon, iter=iter)
+        _outputs = tracker.train(img, attacker=attacker, epsilon=args.epsilon, iter=iter, batch=args.batch)
 
         l1 = _outputs['l1']
         l2 = _outputs['l2']

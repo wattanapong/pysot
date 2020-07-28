@@ -141,7 +141,7 @@ class SiamRPNTrainOneShot(SiameseTracker):
         bbox = center2corner(Center(cx, cy, w, h))
         return bbox
 
-    def cls_loss(self, pscore, pred_box, sort_idx, scale_z, shape):
+    def cls_loss(self, pscore, pred_box, sort_idx, scale_z, shape, batch):
         # pred_box = torch.from_numpy(pred_box).cuda()
         # p = [45, 90, 135]
         # print('score update ', target_score, pscore[sort_idx[0]])
@@ -170,7 +170,11 @@ class SiamRPNTrainOneShot(SiameseTracker):
         # w_inverse = a + b * torch.tanh(c * torch.norm((pred_box[:2, sort_idx[0:45]] - top_pred_box[:, None]) / scale_z, dim=0))
 
         # l1 = torch.sum(pscore[sort_idx[:45]] / w_inverse) - torch.sum(pscore[sort_idx[90:135]])
-        l1 = torch.sum(pscore[sort_idx[:15]]) - torch.sum(pscore[sort_idx[34:49]])
+        if batch < 200:
+            th = batch//3
+        else:
+            th = 45
+        l1 = torch.sum(pscore[sort_idx[:th]]) - torch.sum(pscore[sort_idx[th*2:th*3]])
 
         # w_inverse2 = a_ + b_ * torch.tanh(c_ * (self.zf_min - self.zf_mean))
 
@@ -310,7 +314,7 @@ class SiamRPNTrainOneShot(SiameseTracker):
 
         return s_z, box, pad
 
-    def train(self, img, attacker=None, epsilon=0, idx=0, iter=0, debug=False):
+    def train(self, img, attacker=None, epsilon=0, idx=0, iter=0, batch=200, debug=False):
 
         w_z = self.size[0] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
         h_z = self.size[1] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
@@ -326,7 +330,6 @@ class SiamRPNTrainOneShot(SiameseTracker):
                                           round(s_x), self.channel_average)
             outputs = self.model.track(x_crop, iter)
         else:
-            batch = 49
             if iter == 0:
                 self.x_crops = self.get_subwindows(img, self.center_pos,
                                               cfg.TRACK.INSTANCE_SIZE,
@@ -352,7 +355,7 @@ class SiamRPNTrainOneShot(SiameseTracker):
             self.z_crop_min, _ = torch.min(self.z_crop, 1)
             self.z_crop_mean = torch.mean(self.z_crop, 1)
 
-        l1, l2, l3 = self.cls_loss(score_softmax, pred_bbox, sort_idx, scale_z, img.shape)
+        l1, l2, l3 = self.cls_loss(score_softmax, pred_bbox, sort_idx, scale_z, img.shape, batch)
 
         return {
             'best_score': max_val[sort_idx[0]],
@@ -482,7 +485,7 @@ class SiamRPNTrainOneShot(SiameseTracker):
             }
 
 
-    def get_subwindows(self, im, pos, model_sz, original_sz, avg_chans, batch=100):
+    def get_subwindows(self, im, pos, model_sz, original_sz, avg_chans, batch=200):
         """
         args:
             im: bgr based image
@@ -495,8 +498,9 @@ class SiamRPNTrainOneShot(SiameseTracker):
         num = int(np.sqrt(batch))
 
         im_patch = torch.zeros([num * num, 3, model_sz, model_sz])
-        w, h = (original_sz - self.size)//num
-        # w, h = original_sz // num
+        # w, h = (original_sz - self.size)//num
+        w = original_sz // num
+        h = w
         for i in range(0, num, 1):
             _pos[0] = pos[0] - num * w // 2 + i * w
             for j in range(0, num, 1):
@@ -563,7 +567,7 @@ class SiamRPNTrainOneShot(SiameseTracker):
         if not np.array_equal(model_sz, original_sz):
             im_patch = cv2.resize(im_patch, (model_sz, model_sz))
 
-        # cv2.imwrite('/media/wattanapongsu/4T/temp/save/Basketball/'+str(i)+'_'+str(j)+'.jpg', im_patch)
+        cv2.imwrite('/media/wattanapongsu/4T/temp/save/Basketball/'+str(i)+'_'+str(j)+'.jpg', im_patch)
 
         im_patch = im_patch.transpose(2, 0, 1)
         im_patch = im_patch[np.newaxis, :, :, :]
