@@ -25,20 +25,21 @@ class ModelAttacker(nn.Module):
         self.adv = nn.Parameter(torch.rand([1, 3, 127, 127], requires_grad=True, dtype=torch.float))
 
     def perturb(self, img, epsilon):
-        # x = (self.adv - self.adv.min()) / (self.adv.max() - self.adv.min())
+        x = (self.adv - self.adv.min()) / (self.adv.max() - self.adv.min())
         # pdb.set_trace()
-        x = img + epsilon * (2 * self.adv - 1)
-        x[x != x] = img[x != x]
+        x = img + epsilon * (2 * x - 1)
+        # x[x != x] = img[x != x]
         x[x > 255] = 255
         x[x < 0] = 0
         return x
 
     def template(self, z, tracker, epsilon=0):
         if epsilon != 0:
+            _z = z
             z = self.perturb(z, epsilon)
-            zf = tracker.backbone(z)
-        else:
-            zf = tracker.backbone(z)
+            print( 'diff ', torch.sum(_z - z))
+
+        zf = tracker.backbone(z)
 
         if cfg.ADJUST.ADJUST:
             zf = tracker.neck(zf)
@@ -46,6 +47,29 @@ class ModelAttacker(nn.Module):
         self.zf = zf
 
         return z
+
+    def forward(self, x, tracker, iter=0):
+
+        xf = tracker.backbone(x)
+        if cfg.MASK.MASK:
+            self.xf = xf[:-1]
+            xf = xf[-1]
+        if cfg.ADJUST.ADJUST:
+            xf = tracker.neck(xf)
+
+        self.xf = xf
+
+        _, d, w, h = self.zf[0].shape
+        batch = self.xf[0].shape[0]
+
+        for i in range(0, 3):
+            self.zf[i] = self.zf[i].contiguous().view(-1, 1).repeat(1, batch).view(d, w, h, -1).permute(3, 0, 1, 2)
+        cls, loc = tracker.rpn_head(self.zf, self.xf)
+
+        return {
+                'cls': cls,
+                'loc': loc
+               }
 
     def track(self, x, tracker, iter=0):
 

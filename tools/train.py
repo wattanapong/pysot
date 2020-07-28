@@ -173,6 +173,8 @@ def train(train_loader, model, optimizer, lr_scheduler, tb_writer):
     logger.info("model\n{}".format(describe(model.module)))
     end = time.time()
     for idx, data in enumerate(train_loader):
+        import pdb
+        pdb.set_trace()
         if epoch != idx // num_per_epoch + start_epoch:
             epoch = idx // num_per_epoch + start_epoch
 

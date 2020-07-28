@@ -138,26 +138,26 @@ __C.DATASET.GRAY = 0.0
 __C.DATASET.NAMES = ('VID', 'COCO', 'DET', 'YOUTUBEBB')
 
 __C.DATASET.VID = CN()
-__C.DATASET.VID.ROOT = 'training_dataset/vid/crop511'
-__C.DATASET.VID.ANNO = 'training_dataset/vid/train.json'
+__C.DATASET.VID.ROOT = '/media/wattanapongsu/4T/dataset/Tracking.Train.Crop/vid/crop511'
+__C.DATASET.VID.ANNO = '/media/wattanapongsu/4T/dataset/Tracking.Train.Crop/vid/crop511/train.json'
 __C.DATASET.VID.FRAME_RANGE = 100
 __C.DATASET.VID.NUM_USE = 100000  # repeat until reach NUM_USE
 
 __C.DATASET.YOUTUBEBB = CN()
-__C.DATASET.YOUTUBEBB.ROOT = 'training_dataset/yt_bb/crop511'
-__C.DATASET.YOUTUBEBB.ANNO = 'training_dataset/yt_bb/train.json'
+__C.DATASET.YOUTUBEBB.ROOT = '/media/wattanapongsu/4T/dataset/Tracking.Train.Crop/yt_bb/crop511/train'
+__C.DATASET.YOUTUBEBB.ANNO = '/media/wattanapongsu/4T/dataset/Tracking.Train.Crop/yt_bb/crop511/train.json'
 __C.DATASET.YOUTUBEBB.FRAME_RANGE = 3
 __C.DATASET.YOUTUBEBB.NUM_USE = -1  # use all not repeat
 
 __C.DATASET.COCO = CN()
-__C.DATASET.COCO.ROOT = 'training_dataset/coco/crop511'
-__C.DATASET.COCO.ANNO = 'training_dataset/coco/train2017.json'
+__C.DATASET.COCO.ROOT = '/media/wattanapongsu/4T/dataset/Tracking.Train.Crop/coco/crop511/train2017'
+__C.DATASET.COCO.ANNO = '/media/wattanapongsu/4T/dataset/Tracking.Train.Crop/coco/train2017.json'
 __C.DATASET.COCO.FRAME_RANGE = 1
 __C.DATASET.COCO.NUM_USE = -1
 
 __C.DATASET.DET = CN()
-__C.DATASET.DET.ROOT = 'training_dataset/det/crop511'
-__C.DATASET.DET.ANNO = 'training_dataset/det/train.json'
+__C.DATASET.DET.ROOT = '/media/wattanapongsu/4T/dataset/Tracking.Train.Crop/det/DET_crop/crop511'
+__C.DATASET.DET.ANNO = '/media/wattanapongsu/4T/dataset/Tracking.Train.Crop/det/DET_crop/train.json'
 __C.DATASET.DET.FRAME_RANGE = 1
 __C.DATASET.DET.NUM_USE = -1
 

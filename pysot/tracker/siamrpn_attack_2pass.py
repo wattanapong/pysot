@@ -17,9 +17,9 @@ from pysot.datasets.anchor_target import AnchorTarget
 from pysot.utils.bbox import get_min_max_bbox, center2corner, Center, get_axis_aligned_bbox
 
 
-class SiamRPNAttackOneShot(SiameseTracker):
+class SiamRPNAttack2Pass(SiameseTracker):
     def __init__(self, model):
-        super(SiamRPNAttackOneShot, self).__init__()
+        super(SiamRPNAttack2Pass, self).__init__()
         self.score_size = (cfg.TRACK.INSTANCE_SIZE - cfg.TRACK.EXEMPLAR_SIZE) // \
             cfg.ANCHOR.STRIDE + 1 + cfg.TRACK.BASE_SIZE
         self.anchor_num = len(cfg.ANCHOR.RATIOS) * len(cfg.ANCHOR.SCALES)
@@ -145,7 +145,7 @@ class SiamRPNAttackOneShot(SiameseTracker):
         w_inverse2 = a_ + b_ * torch.tanh(c_ * (self.zf_min - self.zf_mean))
 
         # maximize difference features from adversarial and original image
-        l2 = -torch.norm((self.zfa - self.zf0)/w_inverse2)
+        l2 = -torch.norm((self.zfa - self.zf_init)/w_inverse2)
 
         # maximize union of all prediction boxes ( 1 - 45 )
 
@@ -237,9 +237,6 @@ class SiamRPNAttackOneShot(SiameseTracker):
         return _crop, sz, box, pad
 
     def init(self, img, bbox, attacker=None, epsilon=0):
-
-        # img = torch.from_numpy(img).type(torch.FloatTensor)
-
         self.center_pos = np.array([bbox[0] + (bbox[2] - 1) / 2, bbox[1] + (bbox[3] - 1) / 2])
         self.size = np.array([bbox[2], bbox[3]])
 
@@ -255,29 +252,13 @@ class SiamRPNAttackOneShot(SiameseTracker):
                                         cfg.TRACK.EXEMPLAR_SIZE,
                                         s_z, self.channel_average)
 
-        h, w, _ = img.shape
-
-        box[0] = box[0] - pad[0]
-        box[1] = box[1] - pad[0]
-        box[2] = box[2] - pad[2]
-        box[3] = box[3] - pad[2]
-
-        box[0] = 0 if box[0] < 0 else box[0]
-        box[2] = 0 if box[2] < 0 else box[2]
-        box[1] = h - 1 if box[1] > h else box[1]
-        box[3] = w - 1 if box[3] > w else box[3]
-
         if attacker is None:
             self.model.template(self.z_crop, epsilon=0)
-            self.zf = torch.mean(torch.stack(self.model.zf), 0)
+            self.zf_init = torch.mean(torch.stack(self.model.zf), 0)
         else:
             attacker.template(self.z_crop, self.model, epsilon=0)
-            self.zf = torch.mean(torch.stack(attacker.zf), 0)
+            self.zf_init = torch.mean(torch.stack(attacker.zf), 0)
 
-        # self.model.template(self.z_crop, epsilon=0)
-        # self.zf = torch.mean(torch.stack(self.model.zf), 0)
-
-        return s_z, box, pad
 
     def track(self, img, attacker=None, epsilon=0, idx=0, iter=0, debug=False):
 
@@ -333,7 +314,7 @@ class SiamRPNAttackOneShot(SiameseTracker):
         best_idx = sort_idx[0]
         bbox = pred_bbox[:, best_idx].data.cpu().numpy() / scale_z
 
-        best_score = score_softmax[best_idx]
+        best_score = pscore_softmax[best_idx]
         lr = (penalty[best_idx] * best_score * cfg.TRACK.LR).data.cpu().numpy()
 
         if attacker is not None:
@@ -341,17 +322,15 @@ class SiamRPNAttackOneShot(SiameseTracker):
             if iter == 0:
                 self.target_score = score_softmax[sort_idx[45 - 1]]
 
-                self.zf0 = self.zf
-                self.zf_min, idx_min = torch.min(self.zf, 1)
-                self.zf_mean = torch.mean(self.zf, 1)
-                self.z_crop_min, _ = torch.min(self.z_crop, 1)
-                self.z_crop_mean = torch.mean(self.z_crop, 1)
+                self.zf_min, idx_min = torch.min(self.zf_init, 1)
+                self.zf_mean = torch.mean(self.zf_init, 1)
+                # self.z_crop_min, _ = torch.min(self.z_crop, 1)
+                # self.z_crop_mean = torch.mean(self.z_crop, 1)
 
             if debug:
                 img2 = self.z_crop_adv.data.cpu().numpy().squeeze().transpose([1, 2, 0])
                 cv2.imwrite(os.path.join('/media/wattanapongsu/4T/temp/save', 'bag',
                                      'z'+str(idx).zfill(6)+'_'+str(iter).zfill(2)+'.jpg'), img2)
-
 
             l1, l2, l3 = self.cls_loss(score_softmax, pred_bbox, sort_idx, scale_z, img.shape, lr)
         else:
@@ -399,6 +378,9 @@ class SiamRPNAttackOneShot(SiameseTracker):
                 'center_pos': np.array([cx, cy]),
                 'size': np.array([width, height])
             }
+
+    def first_pass(self, z, x, attacker, epsilon):
+        self.init(z['img'], z['bbox'], attacker, epsilon)
 
     def get_subwindow_custom(self, im, pos, model_sz, original_sz, avg_chans):
         """

@@ -156,101 +156,43 @@ def stoa_track(idx, frame_counter, img, gt_bbox, tracker1):
     return append, lost_number, frame_counter
 
 
-def adversarial_track(idx, frame_counter, img, gt_bbox, attacker, tracker2, optimizer):
-    cx, cy, w, h = get_axis_aligned_bbox(np.array(gt_bbox))
+def adversarial_train(idx, frame_counter, state, attacker, tracker, optimizer, pbar):
+    img = state['img']
+    gt_bbox = state['gt_bbox']
+
+    cx, cy, w, h = get_axis_aligned_bbox(np.array(state['gt_bbox']))
     gt_bbox_ = [cx - (w - 1) / 2, cy - (h - 1) / 2, w, h]
     lost_number = 0
 
-    if idx == frame_counter:
-        zimg = img.copy()
-        sz, bbox, pad = tracker2.init(img, gt_bbox_, attacker=attacker, epsilon=args.epsilon)
+    state['zimg'] = img.copy()
+    state['init_gt'] = gt_bbox_
 
-        zf2 = tracker2.zf
+    state['sz'], state['bbox'], state['pad'] = \
+        tracker.init(img, gt_bbox_, attacker=attacker, epsilon=args.epsilon)
 
-        if args.dataset == 'OTB100':
-            append = gt_bbox_
-        else:
-            append = 1
+    for iter in range(0, 100):
+        _outputs = tracker.train(img, attacker=attacker, epsilon=args.epsilon, iter=iter)
 
-        # cv2.imwrite(os.path.join(args.savedir, video.name, str(idx).zfill(6) +'.jpg'), img)
+        l1 = _outputs['l1']
+        l2 = _outputs['l2']
 
-    elif idx > frame_counter:
-        for i in range(0, args.epochs):
-            _outputs = tracker2.track(img, attacker=attacker, epsilon=args.epsilon, idx=idx, iter=i)
-            # print(_outputs['best_score'], outputs['target_score'])
+        total_loss = l1 + 0.4*l2
 
-            append = _outputs['bbox']
-            ad_overlap = vot_overlap(_outputs['bbox'], gt_bbox, (img.shape[1], img.shape[0]))
+        optimizer.zero_grad()
+        total_loss.backward()
+        optimizer.step()
 
-            # filename = os.path.join(args.savedir, video.name, str(idx).zfill(6) +'.jpg')
-            # save_2bb(img, filename, ad_bbox, pred_bbox, gt_bbox)
+        print(iter, total_loss.item(), l1.item(), l2.item())
 
-            # if _outputs['best_score'] < outputs['target_score']:
+        save(state['zimg'], tracker.z_crop_adv, state['sz'], state['init_gt'], state['pad'],
+            os.path.join(args.savedir, state['video_name'], str(idx).zfill(6) + '.jpg'), save=True)
 
-            l1 = _outputs['l1']
-            l2 = _outputs['l2']
-            l3 = _outputs['l3']
-            # total_loss = 0.8 * l1 + 0.4 * l2 + 1.2 * l3
-            total_loss = l1 + 0.4 * l2
-            # total_loss = l1 + 0.4 * l2
-
-            # print(idx, i, total_loss.item(), _outputs['center_pos'], _outputs['size'])
-
-            # if ad_overlap < 0.5:
-            if _outputs['best_score'] < _outputs['target_score'] or ad_overlap <= 0:
-                total_loss_val = 0
-                # print(idx, i, ad_overlap)
-                # print(ad_bbox)
-                # print(pred_bbox)
-                # print('------------------------')
-                # filename = os.path.join(args.savedir, video.name, 'bb' + str(idx).zfill(6) + '.jpg')
-                # save_2bb(img, filename, ad_bbox, pred_bbox, gt_bbox)
-                # _zimg = save(zimg, tracker2.z_crop_adv, sz, init_gt, pad,
-                #              os.path.join(args.savedir, video.name, str(idx).zfill(6) + '.jpg'), save=True)
-                # pdb.set_trace()
-                break
-            else:
-                # print(i, total_loss.item(), l1.item(), l2.item())
-                optimizer.zero_grad()
-                total_loss.backward()
-                optimizer.step()
-
-            end_t = i
-
-        # filename = os.path.join(args.savedir, video.name, 'bb' + str(idx).zfill(6) + '.jpg')
-        # save_2bb(img, filename, ad_bbox, pred_bbox, gt_bbox)
-        # _zimg = save(zimg, tracker2.z_crop_adv, sz, init_gt, pad,
-        #                  os.path.join(args.savedir, video.name, str(idx).zfill(6) + '.jpg'), save=True)
-
-        # update state
-        tracker2.center_pos = _outputs['center_pos']
-        tracker2.size = _outputs['size']
-
-        # pdb.set_trace()
-        # pred_bbox = outputs['bbox']
-        # ad_bbox = _outputs['bbox']
-
-        if args.dataset != 'OTB100':
-            ad_overlap = vot_overlap(_outputs['bbox'], gt_bbox, (img.shape[1], img.shape[0]))
-            if ad_overlap > 0:
-                # not lost
-                append = _outputs['bbox']
-            else:
-                # lost object
-                append = 2
-                frame_counter = idx + 5  # skip 5 frames
-                lost_number = 1
-        else:
-            if ad_overlap <= 0:
-                lost_number = 1
-
-    else:
-        append = 0
-
-    return append, lost_number, frame_counter
+    # return append, lost_number, frame_counter
+    return optimizer, state, _outputs['bbox'] if idx > 0 else 0
 
 
 def main():
+    mode = 0
     # load config
     cfg.merge_from_file(args.config)
 
@@ -260,17 +202,17 @@ def main():
     epsilon = args.epsilon
 
     # create model
-    track_model1 = ModelBuilder()
-    track_model2 = ModelBuilder()
+    track_model = ModelBuilder()
+    track_model0 = ModelBuilder()
     lr = args.lr
 
     # load model
-    track_model1 = load_pretrain(track_model1, args.snapshot).cuda().eval()
-    track_model2 = load_pretrain(track_model2, args.snapshot).cuda().eval()
+    track_model = load_pretrain(track_model, args.snapshot).cuda().eval()
+    track_model0 = load_pretrain(track_model0, args.snapshot).cuda().eval()
 
     # build tracker
-    tracker1 = build_tracker(track_model1)
-    tracker2 = build_tracker(track_model2)
+    tracker = build_tracker(track_model)
+    tracker0 = build_tracker(track_model0)
 
     attacker = ModelAttacker().cuda().train()
     optimizer = optim.Adam(attacker.parameters(), lr=lr)
@@ -290,10 +232,7 @@ def main():
     total_lost = 0
     n_epochs = args.epochs
 
-    for name, param in tracker1.model.named_parameters():
-        param.requires_grad_(False)
-    #
-    for name, param in tracker2.model.named_parameters():
+    for name, param in tracker.model.named_parameters():
         param.requires_grad_(False)
 
     # for name, param in attacker.named_parameters():
@@ -334,7 +273,8 @@ def main():
             pred_bboxes = []
             pred_bboxes_adv = []
 
-            for idx, (img, gt_bbox) in tqdm(enumerate(video)):
+            pbar = tqdm(enumerate(video))
+            for idx, (img, gt_bbox) in pbar:
 
                 if len(gt_bbox) == 4:
                     gt_bbox = [gt_bbox[0], gt_bbox[1],
@@ -348,48 +288,47 @@ def main():
                 ##########################################
                 # # #  for state of the art tracking # # #
                 ##########################################
+                if mode == 0:
+                    pred_bbox, _lost, frame_counter = stoa_track(idx, frame_counter, img, gt_bbox, tracker0)
 
-                pred_bbox, _lost, frame_counter = stoa_track(idx, frame_counter, img, gt_bbox, tracker1)
-                pred_bboxes.append(pred_bbox)
-                lost_number += _lost
-
-                end_t = 0
                 tic = cv2.getTickCount()
                 ##########################################
                 # # # # #  adversarial tracking  # # # # #
                 ##########################################
-                skip = False
+                if idx == 0:
+                    state = {
+                        'img': img,
+                        'gt_bbox': gt_bbox,
+                        'video_name': video.name
+                    }
+                else:
+                    state['img'] = img
 
-                if not skip:
-                    ad_bbox, _lost_adv, frame_counter_adv = \
-                        adversarial_track(idx, frame_counter_adv, img, gt_bbox, attacker, tracker2, optimizer)
-                lost_number_adv += _lost_adv
+                if mode == 1:
+                    optimizer, state, ad_bbox = \
+                        adversarial_train(idx, frame_counter_adv, state, attacker, tracker, optimizer, pbar)
+                    if idx == 0:
+                        break
 
                 toc += cv2.getTickCount() - tic
 
-                # pdb.set_trace()
-
-                if idx > frame_counter_adv and _lost_adv == 0:
-                    ad_bbox = list(map(int, ad_bbox))
-                    cv2.rectangle(img, (ad_bbox[0], ad_bbox[1]),
-                                  (ad_bbox[0] + ad_bbox[2], ad_bbox[1] + ad_bbox[3]), (0, 0, 255), 3)
-
-                if idx > frame_counter and _lost == 0:
+                if idx > 0 and mode == 0:
                     bbox = list(map(int, pred_bbox))
                     cv2.rectangle(img, (bbox[0], bbox[1]),
                                   (bbox[0] + bbox[2], bbox[1] + bbox[3]), (0, 255, 255), 3)
+
+                if idx > 0 and mode == 1:
+                    ad_bbox = list(map(int, ad_bbox))
+                    cv2.rectangle(img, (ad_bbox[0], ad_bbox[1]),
+                                  (ad_bbox[0] + ad_bbox[2], ad_bbox[1] + ad_bbox[3]), (0, 0, 255), 3)
 
                 __gt_bbox = list(map(int, gt_bbox_))
                 cv2.rectangle(img, (__gt_bbox[0], __gt_bbox[1]),
                               (__gt_bbox[0] + __gt_bbox[2], __gt_bbox[1] + __gt_bbox[3]), (0, 0, 0), 3)
 
                 cv2.putText(img, str(idx), (40, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
-                cv2.putText(img, str(lost_number), (40, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
-                cv2.putText(img, "," + str(lost_number_adv), (80, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
                 out.write(img)
-
-                # print('frame {}/{} -> {} epochs'.format(idx, len(video), end_t))
 
             toc /= cv2.getTickFrequency()
 

@@ -17,9 +17,9 @@ from pysot.datasets.anchor_target import AnchorTarget
 from pysot.utils.bbox import get_min_max_bbox, center2corner, Center, get_axis_aligned_bbox
 
 
-class SiamRPNAttackOneShot(SiameseTracker):
+class SiamRPNAttackSearch(SiameseTracker):
     def __init__(self, model):
-        super(SiamRPNAttackOneShot, self).__init__()
+        super(SiamRPNAttackSearch, self).__init__()
         self.score_size = (cfg.TRACK.INSTANCE_SIZE - cfg.TRACK.EXEMPLAR_SIZE) // \
             cfg.ANCHOR.STRIDE + 1 + cfg.TRACK.BASE_SIZE
         self.anchor_num = len(cfg.ANCHOR.RATIOS) * len(cfg.ANCHOR.SCALES)
@@ -333,7 +333,7 @@ class SiamRPNAttackOneShot(SiameseTracker):
         best_idx = sort_idx[0]
         bbox = pred_bbox[:, best_idx].data.cpu().numpy() / scale_z
 
-        best_score = score_softmax[best_idx]
+        best_score = pscore_softmax[best_idx]
         lr = (penalty[best_idx] * best_score * cfg.TRACK.LR).data.cpu().numpy()
 
         if attacker is not None:
