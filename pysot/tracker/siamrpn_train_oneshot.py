@@ -172,7 +172,7 @@ class SiamRPNTrainOneShot(SiameseTracker):
         # l1 = torch.sum(pscore[sort_idx[:45]] / w_inverse) - torch.sum(pscore[sort_idx[90:135]])
         l1 = torch.sum(pscore[sort_idx[:15]]) - torch.sum(pscore[sort_idx[34:49]])
 
-        w_inverse2 = a_ + b_ * torch.tanh(c_ * (self.zf_min - self.zf_mean))
+        # w_inverse2 = a_ + b_ * torch.tanh(c_ * (self.zf_min - self.zf_mean))
 
         # maximize difference features from adversarial and original image
         # l2 = -torch.norm((self.zfa - self.zf0)/w_inverse2)
@@ -563,7 +563,7 @@ class SiamRPNTrainOneShot(SiameseTracker):
         if not np.array_equal(model_sz, original_sz):
             im_patch = cv2.resize(im_patch, (model_sz, model_sz))
 
-        cv2.imwrite('/media/wattanapongsu/4T/temp/save/Basketball/'+str(i)+'_'+str(j)+'.jpg', im_patch)
+        # cv2.imwrite('/media/wattanapongsu/4T/temp/save/Basketball/'+str(i)+'_'+str(j)+'.jpg', im_patch)
 
         im_patch = im_patch.transpose(2, 0, 1)
         im_patch = im_patch[np.newaxis, :, :, :]
