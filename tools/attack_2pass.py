@@ -342,7 +342,7 @@ def main():
 
                 toc /= cv2.getTickFrequency()
 
-                attacker.template_average = sum(z_crop.data) / len(z_crop)
+                attacker.template_average = sum(z_crop) / len(z_crop)
 
                 save(state['zimg'], attacker.template_average, state['sz'], state['init_gt'], state['pad'],
                      os.path.join(args.savedir, state['video_name'], str(epoch).zfill(6) + '.jpg'), save=True)
