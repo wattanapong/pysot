@@ -273,8 +273,6 @@ def main():
                 pbar = tqdm(enumerate(video))
                 for idx, (img, gt_bbox) in pbar:
 
-                    if idx > 100:
-                        break
                     if len(gt_bbox) == 4:
                         gt_bbox = [gt_bbox[0], gt_bbox[1],
                                    gt_bbox[0], gt_bbox[1] + gt_bbox[3] - 1,
