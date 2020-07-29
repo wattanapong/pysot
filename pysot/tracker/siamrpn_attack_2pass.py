@@ -52,37 +52,23 @@ class SiamRPNAttack2Pass(SiameseTracker):
         anchor[:, 0], anchor[:, 1] = xx.astype(np.float32), yy.astype(np.float32)
         return anchor
 
-    def _convert_bbox(self, delta, anchor, need_tensor=False):
+    def _convert_bbox(self, delta, anchor):
         delta = delta.permute(1, 2, 3, 0).contiguous().view(4, -1)
 
-        if not need_tensor:
-            delta = delta.data.cpu().numpy()
-        else:
-            anchor = torch.from_numpy(anchor).cuda()
+        anchor = torch.from_numpy(anchor).cuda()
 
         delta[0, :] = delta[0, :] * anchor[:, 2] + anchor[:, 0]
         delta[1, :] = delta[1, :] * anchor[:, 3] + anchor[:, 1]
 
-        if not need_tensor:
-            delta[2, :] = np.exp(delta[2, :]) * anchor[:, 2]
-            delta[3, :] = np.exp(delta[3, :]) * anchor[:, 3]
-        else:
-            delta[2, :] = torch.exp(delta[2, :]) * anchor[:, 2]
-            delta[3, :] = torch.exp(delta[3, :]) * anchor[:, 3]
+        delta[2, :] = torch.exp(delta[2, :]) * anchor[:, 2]
+        delta[3, :] = torch.exp(delta[3, :]) * anchor[:, 3]
 
         return delta
 
-    def _convert_score(self, score, need_tensor=False):
+    def _convert_score(self, score):
         score = score.permute(1, 2, 3, 0).contiguous().view(2, -1).permute(1, 0)
-
-        if not need_tensor:
-            score = F.softmax(score, dim=1).data[:, 1]
-            score = score.cpu().numpy()
-            return score
-        else:
-            score_softmax = F.softmax(score, dim=1).data[:, 1]
-            score = score[:,1]
-            return score, score_softmax
+        score_softmax = F.softmax(score, dim=1)[:, 1]
+        return score_softmax
 
     def _bbox_clip(self, cx, cy, width, height, boundary):
         cx = max(0, min(cx, boundary[1]))
@@ -112,97 +98,29 @@ class SiamRPNAttack2Pass(SiameseTracker):
         bbox = center2corner(Center(cx, cy, w, h))
         return bbox
 
-    def cls_loss(self, pscore, pred_box, sort_idx, scale_z, shape, lr):
-        # pred_box = torch.from_numpy(pred_box).cuda()
-        # p = [45, 90, 135]
-        # print('score update ', target_score, pscore[sort_idx[0]])
-        a = 0.5
-        b = 1.5
-        c = 0.2 # 0.03 #
-        a_ = 2
-        b_ = -1
-        c_ = 20 # 0.1 #
+    # min overlap
+    def l1_loss(self, pred_box_a, pred_box, lr):
+        a = 0.3
+        b = 0.7
 
-        imh, imw, _ = shape
+        xa, ya, wa, ha = pred_box_a
+        x, y, w, h = pred_box
 
-        # top_pred_box = pred_box[:, sort_idx[0]]
-        # w_inverse = a + b * torch.tanh(c * (pred_box[:2, sort_idx[0:45]] - top_pred_box[:2, None])/scale_z)
+        wa = torch.tensor(self.size[0]).cuda() * (1 - lr) + wa * lr
+        ha = torch.tensor(self.size[1]).cuda() * (1 - lr) + ha * lr
+        c_loss = -1 * torch.sum(torch.sqrt(xa**2+ya**2))
+        shape_loss = -1 * torch.sum(torch.sqrt((wa - w)**2+(ha - h)**2))
+        return c_loss + shape_loss
 
-        # top_pred_box = sort_idx[0]
-        # w_inverse = a + b * torch.tanh(c * sort_idx[0:45] - sort_idx[0])
+    # min confident score
+    def l2_loss(self, score, sort_idx, th):
+        confidence_loss = torch.sum(score[sort_idx[:th]]) - torch.sum(score[sort_idx[th * 2:th * 3]])
+        return confidence_loss
 
-        # coordinate_box = torch.cat((pred_box[:2, sort_idx[0:45]] - pred_box[2:4, sort_idx[0:45]]/2,
-        #                            pred_box[:2, sort_idx[0:45]] + pred_box[2:4, sort_idx[0:45]] / 2), dim=0)
-        # top_coordinate_box = coordinate_box[:, 0]
-        #
-        # w_inverse = a + b * torch.tanh(torch.sum(c * torch.sqrt((coordinate_box - top_coordinate_box[:, None])**2))/4/scale_z)
+    def l3_loss(self, z_crop, z_crop_a):
+        z_energy = torch.norm(z_crop - z_crop_a)
+        return z_energy
 
-        top_pred_box = pred_box[:2, sort_idx[0]]
-        w_inverse = a + b * torch.tanh(c * torch.norm((pred_box[:2, sort_idx[0:45]] - top_pred_box[:, None]) / scale_z, dim=0))
-
-        l1 = torch.sum(pscore[sort_idx[:45]] / w_inverse) - torch.sum(pscore[sort_idx[90:135]])
-
-        w_inverse2 = a_ + b_ * torch.tanh(c_ * (self.zf_min - self.zf_mean))
-
-        # maximize difference features from adversarial and original image
-        l2 = -torch.norm((self.zfa - self.zf_init)/w_inverse2)
-
-        # maximize union of all prediction boxes ( 1 - 45 )
-
-        # pdb.set_trace()
-        # idx = 0
-        # distance = torch.zeros(45)
-        # for i in sort_idx[0:45]:
-        #     cx = pred_box[1, i] + self.center_pos[0]
-        #     cy = pred_box[0, i] + self.center_pos[1]
-        #
-        #     # smooth bbox
-        #     lr = torch.tensor(lr).type(torch.float)
-        #     width = self.size[0] * (1 - lr) + pred_box[3, i] * lr
-        #     height = self.size[1] * (1 - lr) + pred_box[2, i] * lr
-        #
-        #     if idx == 0:
-        #         p1 = cx - width / 2, cy - height / 2
-        #         p2 = cx + width / 2, cy + height / 2
-        #     else:
-        #         distance[idx] =
-        #
-        #
-        l3 = -torch.norm(pred_box[:2, sort_idx[0:45]])
-        # l3 = -torch.norm(pred_box[:2, sort_idx[0:45]] - top_pred_box[:2, None])
-        # l3 = torch.norm(coordinate_box - top_coordinate_box[:, None])/scale_z
-        # pdb.set_trace()
-
-        # w_inverse = a_ + b_ * torch.tanh(c_ * (self.z_crop_min - self.z_crop_mean))
-        # minimize pixel variation of adversarial image
-        # l3 = torch.sum((self.z_crop - self.z_crop_adv)/w_inverse)
-
-        # minimize width and height prediction box
-        # l3 = torch.norm(pred_box[2:4, sort_idx[0:45]])
-
-        # pdb.set_trace()
-        return l1, l2, l3
-
-    def cls_loss_oneshot(self, pscore, pred_box, sort_idx, scale_z):
-        pred_box = torch.from_numpy(pred_box).cuda()
-        # p = [45, 90, 135]
-        # print('score update ', target_score, pscore[sort_idx[0]])
-        a = 0.5
-        b = 1.5
-        c = 0.2
-        a_ = 2
-        b_ = -1
-        c_ = 20
-
-        top_pred_box = pred_box[:, sort_idx[0]]
-        # pdb.set_trace()
-        w_inverse = a + b * torch.tanh(c * torch.sqrt((pred_box[:, sort_idx[0:45]] - top_pred_box[:, None])**2)/scale_z)
-        l1 = torch.sum(pscore[sort_idx[:45]] / w_inverse) - torch.sum(pscore[sort_idx[90:135]])
-
-        w_inverse = a_ + b_ * torch.tanh(c_ * (self.zf_min - self.zf_mean))
-        l2 = -torch.norm((self.zfa - self.zf)/w_inverse)
-        # pdb.set_trace()
-        return l1, l2
 
     def crop(self, img, bbox=None, im_name=None):
         # calculate channel average
@@ -236,7 +154,11 @@ class SiamRPNAttack2Pass(SiameseTracker):
 
         return _crop, sz, box, pad
 
+
     def init(self, img, bbox, attacker=None, epsilon=0):
+
+        # img = torch.from_numpy(img).type(torch.FloatTensor)
+
         self.center_pos = np.array([bbox[0] + (bbox[2] - 1) / 2, bbox[1] + (bbox[3] - 1) / 2])
         self.size = np.array([bbox[2], bbox[3]])
 
@@ -252,13 +174,81 @@ class SiamRPNAttack2Pass(SiameseTracker):
                                         cfg.TRACK.EXEMPLAR_SIZE,
                                         s_z, self.channel_average)
 
-        if attacker is None:
-            self.model.template(self.z_crop, epsilon=0)
-            self.zf_init = torch.mean(torch.stack(self.model.zf), 0)
-        else:
-            attacker.template(self.z_crop, self.model, epsilon=0)
-            self.zf_init = torch.mean(torch.stack(attacker.zf), 0)
+        h, w, _ = img.shape
 
+        box[0] = box[0] - pad[0]
+        box[1] = box[1] - pad[0]
+        box[2] = box[2] - pad[2]
+        box[3] = box[3] - pad[2]
+
+        box[0] = 0 if box[0] < 0 else box[0]
+        box[2] = 0 if box[2] < 0 else box[2]
+        box[1] = h - 1 if box[1] > h else box[1]
+        box[3] = w - 1 if box[3] > w else box[3]
+
+        self.z_crop_adv = attacker.template(self.z_crop, self.model, epsilon)
+        self.zf = torch.mean(torch.stack(attacker.zf), 0)
+
+        return s_z, box, pad
+
+    def train(self, img, attacker=None, bbox=None, epsilon=0, idx=0, batch=200, debug=False):
+        w_z = self.size[0] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
+        h_z = self.size[1] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
+
+        s_z = np.sqrt(w_z * h_z)
+        scale_z = cfg.TRACK.EXEMPLAR_SIZE / s_z
+        s_x = s_z * (cfg.TRACK.INSTANCE_SIZE / cfg.TRACK.EXEMPLAR_SIZE)
+
+        self.x_crop, _, _ = self.get_subwindow_custom(img, (bbox[0], bbox[1]), cfg.TRACK.INSTANCE_SIZE, round(s_x),
+                                           self.channel_average)
+        # self.z_crop_adv = attacker.template(self.z_crop, self.model, epsilon)
+        # self.zfa = torch.mean(torch.stack(attacker.zf), 0)
+
+        outputs = attacker(self.x_crop, self.model, iter)
+
+        score_softmax = self._convert_score(outputs['cls'])
+        pred_bbox = self._convert_bbox(outputs['loc'], self.anchors)
+
+        # max_score.values and max_score.indices
+        _, sort_idx = torch.sort(-score_softmax)
+
+        def change(r):
+            return torch.max(r, 1./r)
+
+        def sz(w, h):
+            if not torch.is_tensor(w):
+                w = torch.tensor(w).type(torch.float)
+            if not torch.is_tensor(h):
+                h = torch.tensor(h).type(torch.float)
+            pad = (w + h) * 0.5
+            return torch.sqrt((w + pad) * (h + pad))
+
+        # scale penalty
+        s_c = change(sz(pred_bbox[2, :], pred_bbox[3, :]) / (sz(self.size[0] * scale_z, self.size[1] * scale_z)))
+
+        # aspect ratio penalty
+        r_c = change(torch.tensor(self.size[0]/self.size[1]).type(torch.float) / (pred_bbox[2, :]/pred_bbox[3, :]))
+
+        penalty = torch.exp(-(r_c * s_c - 1) * cfg.TRACK.PENALTY_K).cuda()
+
+        lr = (penalty[sort_idx[0]] * score_softmax[sort_idx[0]] * cfg.TRACK.LR)
+
+        l1 = self.l1_loss(pred_bbox[:, sort_idx[0]], bbox, lr)
+
+        l2 = self.l2_loss(score_softmax, sort_idx, 100)
+        if attacker.template_average is None:
+            l3 = None
+        else:
+            l3 = self.l3_loss(attacker.template_average, self.z_crop_adv)
+
+        z_crop = attacker.perturb(self.z_crop, epsilon)
+
+        return {
+            'l1': l1,
+            'l2': l2,
+            'l3': l3,
+            'z_crop': z_crop
+        }
 
     def track(self, img, attacker=None, epsilon=0, idx=0, iter=0, debug=False):
 
@@ -307,14 +297,13 @@ class SiamRPNAttack2Pass(SiameseTracker):
         torch.tensor(self.window * cfg.TRACK.WINDOW_INFLUENCE, dtype=torch.float32).cuda()
 
         _, sort_idx = torch.sort(-pscore_softmax)
-
         # if attacker is not None:
         #     pdb.set_trace()
 
         best_idx = sort_idx[0]
         bbox = pred_bbox[:, best_idx].data.cpu().numpy() / scale_z
 
-        best_score = pscore_softmax[best_idx]
+        best_score = score_softmax[best_idx]
         lr = (penalty[best_idx] * best_score * cfg.TRACK.LR).data.cpu().numpy()
 
         if attacker is not None:
@@ -322,10 +311,11 @@ class SiamRPNAttack2Pass(SiameseTracker):
             if iter == 0:
                 self.target_score = score_softmax[sort_idx[45 - 1]]
 
-                self.zf_min, idx_min = torch.min(self.zf_init, 1)
-                self.zf_mean = torch.mean(self.zf_init, 1)
-                # self.z_crop_min, _ = torch.min(self.z_crop, 1)
-                # self.z_crop_mean = torch.mean(self.z_crop, 1)
+                self.zf0 = self.zf
+                self.zf_min, idx_min = torch.min(self.zf, 1)
+                self.zf_mean = torch.mean(self.zf, 1)
+                self.z_crop_min, _ = torch.min(self.z_crop, 1)
+                self.z_crop_mean = torch.mean(self.z_crop, 1)
 
             if debug:
                 img2 = self.z_crop_adv.data.cpu().numpy().squeeze().transpose([1, 2, 0])
@@ -378,9 +368,6 @@ class SiamRPNAttack2Pass(SiameseTracker):
                 'center_pos': np.array([cx, cy]),
                 'size': np.array([width, height])
             }
-
-    def first_pass(self, z, x, attacker, epsilon):
-        self.init(z['img'], z['bbox'], attacker, epsilon)
 
     def get_subwindow_custom(self, im, pos, model_sz, original_sz, avg_chans):
         """

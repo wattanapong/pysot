@@ -364,7 +364,6 @@ class SiamRPNTrainOneShot(SiameseTracker):
             'l3': l3
         }
 
-
     def track(self, img, attacker=None, epsilon=0, idx=0, iter=0, debug=False):
 
         w_z = self.size[0] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
@@ -483,7 +482,6 @@ class SiamRPNTrainOneShot(SiameseTracker):
                 'center_pos': np.array([cx, cy]),
                 'size': np.array([width, height])
             }
-
 
     def get_subwindows(self, im, pos, model_sz, original_sz, avg_chans, batch=200):
         """
