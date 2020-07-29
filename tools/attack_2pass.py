@@ -269,6 +269,14 @@ def main():
             pred_bboxes_adv = []
             z_crop = []
 
+            track_model = load_pretrain(track_model, args.snapshot).cuda().eval()
+
+            # build tracker
+            tracker = build_tracker(track_model)
+
+            attacker = ModelAttacker().cuda().train()
+            optimizer = optim.Adam(attacker.parameters(), lr=lr)
+
             for epoch in range(0, args.epochs):
                 pbar = tqdm(enumerate(video))
                 for idx, (img, gt_bbox) in pbar:
@@ -309,7 +317,7 @@ def main():
 
                         if idx > 0:
                             pbar.set_postfix_str(total_loss)
-                            z_crop.append(state['z_crop'])
+                            z_crop.append(state['z_crop'].data)
 
                     toc += cv2.getTickCount() - tic
 
@@ -334,7 +342,7 @@ def main():
 
                 toc /= cv2.getTickFrequency()
 
-                attacker.template_average = sum(z_crop) / len(z_crop)
+                attacker.template_average = sum(z_crop.data) / len(z_crop)
 
                 save(state['zimg'], attacker.template_average, state['sz'], state['init_gt'], state['pad'],
                      os.path.join(args.savedir, state['video_name'], str(epoch).zfill(6) + '.jpg'), save=True)

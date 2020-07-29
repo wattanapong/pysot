@@ -231,7 +231,7 @@ class SiamRPNAttack2Pass(SiameseTracker):
 
         penalty = torch.exp(-(r_c * s_c - 1) * cfg.TRACK.PENALTY_K).cuda()
 
-        lr = (penalty[sort_idx[0]] * score_softmax[sort_idx[0]] * cfg.TRACK.LR)
+        lr = (penalty[sort_idx[0]] * score_softmax[sort_idx[0]] * cfg.TRACK.LR).data
 
         l1 = self.l1_loss(pred_bbox[:, sort_idx[0]], bbox, lr)
 
