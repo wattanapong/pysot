@@ -278,8 +278,8 @@ def main():
                 pbar = tqdm(enumerate(video))
                 _loss = []
                 for idx, (img, gt_bbox) in pbar:
-                    #if idx == 20:
-                    #    break
+                    if idx == 20:
+                       break
                     if len(gt_bbox) == 4:
                         gt_bbox = [gt_bbox[0], gt_bbox[1],
                                    gt_bbox[0], gt_bbox[1] + gt_bbox[3] - 1,
@@ -342,9 +342,11 @@ def main():
 
                 toc /= cv2.getTickFrequency()
 
-                attacker.template_average = torch.clamp(sum(adv_z) // len(adv_z), min=0, max=1).data
+                attacker.template_average = sum(adv_z) // len(adv_z)
+                attacker.template_average[attacker.template_average != attacker.template_average] = 0
+                attacker.template_average = torch.clamp(attacker.template_average.data, min = 0, max = 1)
 
-                z_adv = attacker.add_noise(tracker.z_crop, attacker.template_average, epsilon)
+                z_adv = attacker.add_noise(tracker.z_crop, attacker.template_average)
 
                 save(state['zimg'], z_adv, state['sz'], state['init_gt'], state['pad'],
                      os.path.join(args.savedir, state['video_name'], str(epoch).zfill(6) + '.jpg'), save=True)
@@ -352,9 +354,8 @@ def main():
                 _loss = np.asarray(_loss)
                 _loss_v = sum(_loss, 0) / _loss.shape[0]
                 pbar.clear()
-                pbar.set_postfix_str('total %.3f %.3f %.3f %.3f' % (_loss_v[0], _loss_v[1], _loss_v[2], _loss_v[3]))
-                print('%d. Video: %s Time: %.2fs Speed: %.1f fps epoch: %d' % (v_idx + 1, video.name, toc
-                                     , idx / toc, epoch + 1))
+                pbar.set_postfix_str('%d. Video: %s Time: %.2fs  epoch: %d total %.3f %.3f %.3f %.3f' %
+                                     (v_idx + 1, video.name, toc, epoch + 1, _loss_v[0], _loss_v[1], _loss_v[2], _loss_v[3]))
 
                 pbar.refresh()
 
