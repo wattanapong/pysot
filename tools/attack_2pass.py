@@ -56,6 +56,10 @@ parser.add_argument('--batch', default=200, type=int,
                     help='batch size')
 parser.add_argument('--lr', default='1e-4', type=float,
                     help='learning rate')
+parser.add_argument('--alpha', default='0.7', type=float,
+                    help='alpha')
+parser.add_argument('--beta', default='0.3', type=float,
+                    help='beta')
 parser.add_argument('--epochs', default='2 0', type=int,
                     help='number of epochs')
 parser.add_argument('--vis', action='store_true',
@@ -188,7 +192,7 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, epoch):
         #     total_loss = l1 + l2
         # else:
         #     total_loss = l1 + l2 + l3
-        total_loss = l1 + 20*l2
+        total_loss = args.alpha*l1 + args.beta*l2
 
         optimizer.zero_grad()
         total_loss.backward()
