@@ -108,8 +108,9 @@ class SiamRPNAttack2Pass(SiameseTracker):
         wa = torch.tensor(self.size[0]).cuda() * (1 - lr) + wa * lr
         ha = torch.tensor(self.size[1]).cuda() * (1 - lr) + ha * lr
         c_loss = -1 * torch.sum(torch.sqrt(xa**2+ya**2))
-        shape_loss = -1 * torch.sum(torch.sqrt((wa - w)**2+(ha - h)**2))
-        return c_loss + shape_loss
+        # shape_loss = -1 * torch.sum(torch.sqrt((wa - w)**2+(ha - h)**2))
+        # return c_loss + shape_loss
+        return c_loss
 
     # min confident score
     def l2_loss(self, score, sort_idx, th):
