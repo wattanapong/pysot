@@ -276,6 +276,7 @@ def main():
 
             for epoch in range(0, args.epochs):
                 pbar = tqdm(enumerate(video))
+                _loss = []
                 for idx, (img, gt_bbox) in pbar:
                     # if idx == 20:
                     #     break
@@ -314,6 +315,7 @@ def main():
                             adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox_, epoch)
 
                         if idx > 0:
+                            _loss.append(loss)
                             pbar.set_postfix_str('total %.3f %.3f %.3f %.3f' % (loss[0], loss[1], loss[2], loss[3]))
                             adv_z.append(attacker.adv_z)
 
@@ -347,6 +349,9 @@ def main():
                 save(state['zimg'], z_adv, state['sz'], state['init_gt'], state['pad'],
                      os.path.join(args.savedir, state['video_name'], str(epoch).zfill(6) + '.jpg'), save=True)
 
+                _loss = np.asarray(_loss)
+                _loss_v = sum(_loss, 0) / _loss.shape[0]
+                pbar.set_postfix_str('total %.3f %.3f %.3f %.3f' % (_loss_v[0], _loss_v[1], _loss_v[2], _loss_v[3]))
                 pbar.set_description('%d. Video: %s Time: %.2fs Speed: %.1f fps epoch: %d' % (v_idx + 1, video.name, toc
                                      , idx / toc, epoch + 1))
 
