@@ -60,6 +60,8 @@ parser.add_argument('--epochs', default='2 0', type=int,
                     help='number of epochs')
 parser.add_argument('--vis', action='store_true',
                     help='whether visualize result')
+parser.add_argument('--debug', action='store_true',
+                    help='debugging flag')
 args = parser.parse_args()
 
 
@@ -280,7 +282,7 @@ def main():
                 pbar = tqdm(enumerate(video))
                 _loss = []
                 for idx, (img, gt_bbox) in pbar:
-                    if idx == 20:
+                    if idx == 20 and args.debug:
                        break
                     if len(gt_bbox) == 4:
                         gt_bbox = [gt_bbox[0], gt_bbox[1],
