@@ -278,8 +278,8 @@ def main():
                 pbar = tqdm(enumerate(video))
                 _loss = []
                 for idx, (img, gt_bbox) in pbar:
-                    # if idx == 20:
-                    #     break
+                    #if idx == 20:
+                    #    break
                     if len(gt_bbox) == 4:
                         gt_bbox = [gt_bbox[0], gt_bbox[1],
                                    gt_bbox[0], gt_bbox[1] + gt_bbox[3] - 1,
@@ -351,9 +351,12 @@ def main():
 
                 _loss = np.asarray(_loss)
                 _loss_v = sum(_loss, 0) / _loss.shape[0]
+                pbar.clear()
                 pbar.set_postfix_str('total %.3f %.3f %.3f %.3f' % (_loss_v[0], _loss_v[1], _loss_v[2], _loss_v[3]))
-                pbar.set_description('%d. Video: %s Time: %.2fs Speed: %.1f fps epoch: %d' % (v_idx + 1, video.name, toc
+                print('%d. Video: %s Time: %.2fs Speed: %.1f fps epoch: %d' % (v_idx + 1, video.name, toc
                                      , idx / toc, epoch + 1))
+
+                pbar.refresh()
 
             if mode == 'test':
                 # save results
