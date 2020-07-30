@@ -184,10 +184,11 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, epoch):
         l2 = _outputs['l2']
         l3 = _outputs['l3']
 
-        if epoch == 0:
-            total_loss = l1 + l2
-        else:
-            total_loss = l1 + l2 + l3
+        # if epoch == 0:
+        #     total_loss = l1 + l2
+        # else:
+        #     total_loss = l1 + l2 + l3
+        total_loss = l1 + l2
 
         optimizer.zero_grad()
         total_loss.backward()
@@ -279,10 +280,10 @@ def main():
             optimizer = optim.Adam(attacker.parameters(), lr=lr)
 
             for epoch in range(0, args.epochs):
-                pbar = tqdm(enumerate(video))
+                pbar = tqdm(enumerate(video), position=0, leave=True)
                 _loss = []
                 for idx, (img, gt_bbox) in pbar:
-                    if idx == 20 and args.debug:
+                    if idx == 100 and args.debug:
                        break
                     if len(gt_bbox) == 4:
                         gt_bbox = [gt_bbox[0], gt_bbox[1],
@@ -321,9 +322,10 @@ def main():
                         if idx > 0:
                             _loss.append(loss)
                             # pbar.set_postfix_str('total %.3f %.3f %.3f %.3f' % (loss[0], loss[1], loss[2], loss[3]))
-                            pbar.set_postfix_str('%d. Video: %s epoch: %d total %.3f %.3f %.3f %.3f' %
-                                                 (v_idx + 1, video.name, epoch + 1, loss[0], loss[1], loss[2], loss[3]))
-                            adv_z.append(attacker.adv_z)
+                            pbar.set_postfix_str('%d. Video: %s epoch: %d total %.3f %.3f %.3f %.3f %.3f' %
+                                                 (v_idx + 1, video.name, epoch + 1, loss[0], loss[1], loss[2], loss[3],
+                                                  attacker.adv_z.mean()))
+                            adv_z.append(attacker.adv_z.data.cpu())
 
                     toc += cv2.getTickCount() - tic
 
@@ -348,23 +350,22 @@ def main():
 
                 toc /= cv2.getTickFrequency()
 
-                attacker.template_average = sum(adv_z) // len(adv_z)
-                attacker.template_average[attacker.template_average != attacker.template_average] = 0
-                attacker.template_average = torch.clamp(attacker.template_average.data, min = 0, max = 1)
+                if mode == 'train':
+                    pdb.set_trace()
+                    attacker.template_average = sum(adv_z) / len(adv_z)
+                    attacker.template_average[attacker.template_average != attacker.template_average] = 0
+                    attacker.template_average = torch.clamp(attacker.template_average.data, min = 0, max = 1)
 
-                z_adv = attacker.add_noise(tracker.z_crop, attacker.template_average)
+                    z_adv = attacker.add_noise(tracker.z_crop, attacker.template_average.cuda(), epsilon)
 
-                save(state['zimg'], z_adv, state['sz'], state['init_gt'], state['pad'],
-                     os.path.join(args.savedir, state['video_name'], str(epoch).zfill(6) + '.jpg'), save=True)
+                    save(state['zimg'], z_adv, state['sz'], state['init_gt'], state['pad'],
+                         os.path.join(args.savedir, state['video_name'], str(epoch).zfill(6) + '.jpg'), save=True)
 
-                _loss = np.asarray(_loss)
-                _loss_v = sum(_loss, 0) / _loss.shape[0]
-
-                pbar.set_postfix_str('%d. Video: %s Time: %.2fs  epoch: %d total %.3f %.3f %.3f %.3f' %
-                                     (v_idx + 1, video.name, toc, epoch + 1, _loss_v[0], _loss_v[1], _loss_v[2], _loss_v[3]))
-
-                pbar.clear()
-
+                    _loss = np.asarray(_loss)
+                    _loss_v = sum(_loss, 0) / _loss.shape[0]
+                    pbar.clear()
+                    print('%d. Video: %s Time: %.2fs  epoch: %d total %.3f %.3f %.3f %.3f' %
+                                         (v_idx + 1, video.name, toc, epoch + 1, _loss_v[0], _loss_v[1], _loss_v[2], _loss_v[3]))
             if mode == 'test':
                 # save results
                 if args.dataset == 'OTB100':

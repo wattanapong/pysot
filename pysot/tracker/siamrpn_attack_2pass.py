@@ -117,7 +117,7 @@ class SiamRPNAttack2Pass(SiameseTracker):
         return confidence_loss
 
     def l3_loss(self, z_crop, z_crop_a):
-        z_energy = torch.norm(z_crop - z_crop_a)
+        z_energy = torch.norm(z_crop.cuda() - z_crop_a)
         return z_energy
 
 
@@ -156,7 +156,7 @@ class SiamRPNAttack2Pass(SiameseTracker):
 
     def init(self, img, bbox, attacker=None, epsilon=0, update=True):
 
-        if update:
+        if update or attacker is None:
             self.center_pos = np.array([bbox[0] + (bbox[2] - 1) / 2, bbox[1] + (bbox[3] - 1) / 2])
             self.size = np.array([bbox[2], bbox[3]])
 

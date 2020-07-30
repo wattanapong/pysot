@@ -36,13 +36,8 @@ class ModelAttacker(nn.Module):
         x[x < 0] = 0
         return x
 
-    def add_noise(self, img, noise):
-        # x = (self.adv_z - self.adv.min()) / (self.adv.max() - self.adv.min())
-
-        x = torch.clamp(img + noise, min=0, max=1)
-        # x[x != x] = img[x != x]
-        x[x > 255] = 255
-        x[x < 0] = 0
+    def add_noise(self, img, noise, epsilon):
+        x = torch.clamp(img + epsilon*(2*noise-1), min=0, max=255)
         return x
 
     def template(self, z, tracker, epsilon=0):
