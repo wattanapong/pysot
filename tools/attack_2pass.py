@@ -316,7 +316,10 @@ def main():
 
                         if idx > 0:
                             _loss.append(loss)
-                            pbar.set_postfix_str('total %.3f %.3f %.3f %.3f' % (loss[0], loss[1], loss[2], loss[3]))
+                            # pbar.set_postfix_str('total %.3f %.3f %.3f %.3f' % (loss[0], loss[1], loss[2], loss[3]))
+                            pbar.set_postfix_str('%d. Video: %s epoch: %d total %.3f %.3f %.3f %.3f' %
+                                                 (v_idx + 1, video.name, epoch + 1, _loss_v[0], _loss_v[1],
+                                                  _loss_v[2], _loss_v[3]))
                             adv_z.append(attacker.adv_z)
 
                     toc += cv2.getTickCount() - tic
@@ -353,11 +356,11 @@ def main():
 
                 _loss = np.asarray(_loss)
                 _loss_v = sum(_loss, 0) / _loss.shape[0]
-                pbar.clear()
+
                 pbar.set_postfix_str('%d. Video: %s Time: %.2fs  epoch: %d total %.3f %.3f %.3f %.3f' %
                                      (v_idx + 1, video.name, toc, epoch + 1, _loss_v[0], _loss_v[1], _loss_v[2], _loss_v[3]))
 
-                pbar.refresh()
+                pbar.clear()
 
             if mode == 'test':
                 # save results
