@@ -31,7 +31,7 @@ class ModelAttacker(nn.Module):
         x = torch.clamp(self.adv_z, min=0, max=1)
         # pdb.set_trace()
         x = img + epsilon * (2 * x - 1)
-        # x[x != x] = img[x != x]
+        x[x != x] = img[x != x]
         x[x > 255] = 255
         x[x < 0] = 0
         return x
