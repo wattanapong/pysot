@@ -172,18 +172,15 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, epoch):
     if idx == 0:
         state['zimg'] = img.copy()
         state['init_gt'] = gt_bbox
-        # state['sz'], state['bbox'], state['pad'] = \
-        #     tracker.init(img, gt_bbox, attacker=attacker, epsilon=args.epsilon)
-    if idx > 0:
         state['sz'], state['bbox'], state['pad'] = \
-            tracker.init(img, gt_bbox, attacker=attacker, epsilon=args.epsilon)
+            tracker.init(state['zimg'], state['init_gt'], attacker=attacker, epsilon=args.epsilon, update=True)
+    if idx > 0:
+        tracker.init(state['zimg'], state['init_gt'], attacker=attacker, epsilon=args.epsilon, update=False)
         _outputs = tracker.train(img, attacker=attacker, bbox=[cx, cy, w, h], epsilon=args.epsilon, batch=args.batch)
 
         l1 = _outputs['l1']
         l2 = _outputs['l2']
         l3 = _outputs['l3']
-
-        state['z_crop'] = _outputs['z_crop']
 
         if epoch == 0:
             total_loss = l1 + l2
@@ -194,12 +191,10 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, epoch):
         total_loss.backward()
         optimizer.step()
 
-        # print(epoch, total_loss.item(), l1.item(), l2.item(), None if epoch == 0 else l3.item())
-
-        # save(state['zimg'], tracker.z_crop_adv, state['sz'], state['init_gt'], state['pad'],
+        # save(state['zimg'], attacker.perturb(tracker.z_crop, args.epsilon), state['sz'], state['init_gt'], state['pad'],
         #     os.path.join(args.savedir, state['video_name'], str(idx).zfill(6) + '.jpg'), save=True)
 
-    return state, total_loss.item() if idx > 0 else 0
+    return state, [total_loss.item(), l1.item(), l2.item(), l3.item() if epoch > 0 else 0] if idx > 0 else 0
 
 
 def main():
@@ -269,7 +264,7 @@ def main():
             toc = 0
             pred_bboxes = []
             pred_bboxes_adv = []
-            z_crop = []
+            adv_z = []
 
             track_model = load_pretrain(track_model, args.snapshot).cuda().eval()
 
@@ -282,7 +277,8 @@ def main():
             for epoch in range(0, args.epochs):
                 pbar = tqdm(enumerate(video))
                 for idx, (img, gt_bbox) in pbar:
-
+                    # if idx == 20:
+                    #     break
                     if len(gt_bbox) == 4:
                         gt_bbox = [gt_bbox[0], gt_bbox[1],
                                    gt_bbox[0], gt_bbox[1] + gt_bbox[3] - 1,
@@ -314,12 +310,12 @@ def main():
                         state['img'] = img
 
                     if mode == 'train':
-                        state, total_loss = \
+                        state, loss = \
                             adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox_, epoch)
 
                         if idx > 0:
-                            pbar.set_postfix_str(total_loss)
-                            z_crop.append(state['z_crop'].data)
+                            pbar.set_postfix_str('total %.3f %.3f %.3f %.3f' % (loss[0], loss[1], loss[2], loss[3]))
+                            adv_z.append(attacker.adv_z)
 
                     toc += cv2.getTickCount() - tic
 
@@ -344,16 +340,15 @@ def main():
 
                 toc /= cv2.getTickFrequency()
 
-                attacker.template_average = sum(z_crop) / len(z_crop)
+                attacker.template_average = torch.clamp(sum(adv_z) // len(adv_z), min=0, max=1).data
 
-                save(state['zimg'], attacker.template_average, state['sz'], state['init_gt'], state['pad'],
+                z_adv = attacker.add_noise(tracker.z_crop, attacker.template_average, epsilon)
+
+                save(state['zimg'], z_adv, state['sz'], state['init_gt'], state['pad'],
                      os.path.join(args.savedir, state['video_name'], str(epoch).zfill(6) + '.jpg'), save=True)
 
-                print('({:3d}) Video: {:12s} Time: {:4.1f}s Speed: {:3.1f}fps iteration: {:d} loss: {:5.4f}'.format(v_idx + 1,
-                                                                                                      video.name, toc,
-                                                                                                      idx / toc,
-                                                                                                      epoch + 1,
-                                                                                                    total_loss))
+                pbar.set_description('%d. Video: %s Time: %.2fs Speed: %.1f fps epoch: %d' % (v_idx + 1, video.name, toc
+                                     , idx / toc, epoch + 1))
 
             if mode == 'test':
                 # save results

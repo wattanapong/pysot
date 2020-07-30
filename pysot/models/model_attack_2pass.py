@@ -36,6 +36,16 @@ class ModelAttacker(nn.Module):
         x[x < 0] = 0
         return x
 
+    def add_noise(self, img, noise, epsilon):
+        # x = (self.adv_z - self.adv.min()) / (self.adv.max() - self.adv.min())
+        x = torch.clamp(noise, min=0, max=1)
+        # pdb.set_trace()
+        x = img + epsilon * (2 * x - 1)
+        # x[x != x] = img[x != x]
+        x[x > 255] = 255
+        x[x < 0] = 0
+        return x
+
     def template(self, z, tracker, epsilon=0):
         if epsilon != 0:
             z = self.perturb(z, epsilon)

@@ -154,36 +154,35 @@ class SiamRPNAttack2Pass(SiameseTracker):
         return _crop, sz, box, pad
 
 
-    def init(self, img, bbox, attacker=None, epsilon=0):
+    def init(self, img, bbox, attacker=None, epsilon=0, update=True):
 
-        # img = torch.from_numpy(img).type(torch.FloatTensor)
+        if update:
+            self.center_pos = np.array([bbox[0] + (bbox[2] - 1) / 2, bbox[1] + (bbox[3] - 1) / 2])
+            self.size = np.array([bbox[2], bbox[3]])
 
-        self.center_pos = np.array([bbox[0] + (bbox[2] - 1) / 2, bbox[1] + (bbox[3] - 1) / 2])
-        self.size = np.array([bbox[2], bbox[3]])
+            # calculate z crop size
+            w_z = self.size[0] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
+            h_z = self.size[1] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
+            s_z = round(np.sqrt(w_z * h_z))
 
-        # calculate z crop size
-        w_z = self.size[0] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
-        h_z = self.size[1] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
-        s_z = round(np.sqrt(w_z * h_z))
+            # self.channel_average = torch.mean(img, dim=(0, 1))
+            self.channel_average = np.mean(img, axis=(0, 1))
 
-        # self.channel_average = torch.mean(img, dim=(0, 1))
-        self.channel_average = np.mean(img, axis=(0, 1))
+            self.z_crop, box, pad = self.get_subwindow_custom(img, self.center_pos,
+                                            cfg.TRACK.EXEMPLAR_SIZE,
+                                            s_z, self.channel_average)
 
-        self.z_crop, box, pad = self.get_subwindow_custom(img, self.center_pos,
-                                        cfg.TRACK.EXEMPLAR_SIZE,
-                                        s_z, self.channel_average)
+            h, w, _ = img.shape
 
-        h, w, _ = img.shape
+            box[0] = box[0] - pad[0]
+            box[1] = box[1] - pad[0]
+            box[2] = box[2] - pad[2]
+            box[3] = box[3] - pad[2]
 
-        box[0] = box[0] - pad[0]
-        box[1] = box[1] - pad[0]
-        box[2] = box[2] - pad[2]
-        box[3] = box[3] - pad[2]
-
-        box[0] = 0 if box[0] < 0 else box[0]
-        box[2] = 0 if box[2] < 0 else box[2]
-        box[1] = h - 1 if box[1] > h else box[1]
-        box[3] = w - 1 if box[3] > w else box[3]
+            box[0] = 0 if box[0] < 0 else box[0]
+            box[2] = 0 if box[2] < 0 else box[2]
+            box[1] = h - 1 if box[1] > h else box[1]
+            box[3] = w - 1 if box[3] > w else box[3]
 
         if attacker is None:
             self.model.template(self.z_crop, epsilon=0)
@@ -192,7 +191,8 @@ class SiamRPNAttack2Pass(SiameseTracker):
             self.z_crop_adv = attacker.template(self.z_crop, self.model, epsilon)
             self.zf = torch.mean(torch.stack(attacker.zf), 0)
 
-        return s_z, box, pad
+        if update:
+            return s_z, box, pad
 
     def train(self, img, attacker=None, bbox=None, epsilon=0, idx=0, batch=200, debug=False):
         w_z = self.size[0] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
@@ -242,15 +242,12 @@ class SiamRPNAttack2Pass(SiameseTracker):
         if attacker.template_average is None:
             l3 = None
         else:
-            l3 = self.l3_loss(attacker.template_average, self.z_crop_adv)
-
-        z_crop = attacker.perturb(self.z_crop, epsilon)
+            l3 = self.l3_loss(attacker.template_average, attacker.adv_z)
 
         return {
             'l1': l1,
             'l2': l2,
-            'l3': l3,
-            'z_crop': z_crop
+            'l3': l3
         }
 
     def track(self, img, attacker=None, epsilon=0, idx=0, iter=0, debug=False):
