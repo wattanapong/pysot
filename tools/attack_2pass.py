@@ -190,6 +190,8 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, epoch):
         optimizer.zero_grad()
         total_loss.backward()
         optimizer.step()
+        with torch.no_grad():
+            attacker.adv_z[attacker.adv_z != attacker.adv_z] = 0
 
         # save(state['zimg'], attacker.perturb(tracker.z_crop, args.epsilon), state['sz'], state['init_gt'], state['pad'],
         #     os.path.join(args.savedir, state['video_name'], str(idx).zfill(6) + '.jpg'), save=True)
@@ -278,8 +280,8 @@ def main():
                 pbar = tqdm(enumerate(video))
                 _loss = []
                 for idx, (img, gt_bbox) in pbar:
-                    # if idx == 20:
-                    #    break
+                    if idx == 20:
+                       break
                     if len(gt_bbox) == 4:
                         gt_bbox = [gt_bbox[0], gt_bbox[1],
                                    gt_bbox[0], gt_bbox[1] + gt_bbox[3] - 1,

@@ -117,7 +117,6 @@ class SiamRPNAttack2Pass(SiameseTracker):
         return confidence_loss
 
     def l3_loss(self, z_crop, z_crop_a):
-        z_crop_a[z_crop_a != z_crop_a] = 0
         z_energy = torch.norm(z_crop - z_crop_a)
         return z_energy
 
