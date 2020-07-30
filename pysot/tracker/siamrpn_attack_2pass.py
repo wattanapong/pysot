@@ -238,7 +238,7 @@ class SiamRPNAttack2Pass(SiameseTracker):
 
         l1 = self.l1_loss(pred_bbox[:, sort_idx[0]], bbox, lr)
 
-        l2 = self.l2_loss(score_softmax, sort_idx, 100)
+        l2 = self.l2_loss(score_softmax, sort_idx, 45)
         if attacker.template_average is None:
             l3 = None
         else:
