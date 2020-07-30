@@ -188,7 +188,7 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, epoch):
         #     total_loss = l1 + l2
         # else:
         #     total_loss = l1 + l2 + l3
-        total_loss = l1 + l2
+        total_loss = l1 + 20*l2
 
         optimizer.zero_grad()
         total_loss.backward()
@@ -351,7 +351,6 @@ def main():
                 toc /= cv2.getTickFrequency()
 
                 if mode == 'train':
-                    pdb.set_trace()
                     attacker.template_average = sum(adv_z) / len(adv_z)
                     attacker.template_average[attacker.template_average != attacker.template_average] = 0
                     attacker.template_average = torch.clamp(attacker.template_average.data, min = 0, max = 1)
