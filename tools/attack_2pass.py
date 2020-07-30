@@ -172,9 +172,11 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, epoch):
     if idx == 0:
         state['zimg'] = img.copy()
         state['init_gt'] = gt_bbox
+        # state['sz'], state['bbox'], state['pad'] = \
+        #     tracker.init(img, gt_bbox, attacker=attacker, epsilon=args.epsilon)
+    if idx > 0:
         state['sz'], state['bbox'], state['pad'] = \
             tracker.init(img, gt_bbox, attacker=attacker, epsilon=args.epsilon)
-    else:
         _outputs = tracker.train(img, attacker=attacker, bbox=[cx, cy, w, h], epsilon=args.epsilon, batch=args.batch)
 
         l1 = _outputs['l1']
@@ -189,7 +191,7 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, epoch):
             total_loss = l1 + l2 + l3
 
         optimizer.zero_grad()
-        total_loss.backward(retain_graph=True)
+        total_loss.backward()
         optimizer.step()
 
         # print(epoch, total_loss.item(), l1.item(), l2.item(), None if epoch == 0 else l3.item())
@@ -197,7 +199,7 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, epoch):
         # save(state['zimg'], tracker.z_crop_adv, state['sz'], state['init_gt'], state['pad'],
         #     os.path.join(args.savedir, state['video_name'], str(idx).zfill(6) + '.jpg'), save=True)
 
-    return optimizer, state, attacker, tracker, total_loss.item() if idx > 0 else 0
+    return state, total_loss.item() if idx > 0 else 0
 
 
 def main():
@@ -312,7 +314,7 @@ def main():
                         state['img'] = img
 
                     if mode == 'train':
-                        optimizer, state, attacker, tracker, total_loss = \
+                        state, total_loss = \
                             adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox_, epoch)
 
                         if idx > 0:
@@ -322,7 +324,7 @@ def main():
                     toc += cv2.getTickCount() - tic
 
                     if mode == 'test':
-                        if idx > 0 and mode == 0:
+                        if idx > 0:
                             bbox = list(map(int, pred_bbox))
                             cv2.rectangle(img, (bbox[0], bbox[1]),
                                           (bbox[0] + bbox[2], bbox[1] + bbox[3]), (0, 255, 255), 3)

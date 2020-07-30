@@ -105,7 +105,6 @@ class SiamRPNAttack2Pass(SiameseTracker):
 
         xa, ya, wa, ha = pred_box_a
         x, y, w, h = pred_box
-
         wa = torch.tensor(self.size[0]).cuda() * (1 - lr) + wa * lr
         ha = torch.tensor(self.size[1]).cuda() * (1 - lr) + ha * lr
         c_loss = -1 * torch.sum(torch.sqrt(xa**2+ya**2))
@@ -186,8 +185,12 @@ class SiamRPNAttack2Pass(SiameseTracker):
         box[1] = h - 1 if box[1] > h else box[1]
         box[3] = w - 1 if box[3] > w else box[3]
 
-        self.z_crop_adv = attacker.template(self.z_crop, self.model, epsilon)
-        self.zf = torch.mean(torch.stack(attacker.zf), 0)
+        if attacker is None:
+            self.model.template(self.z_crop, epsilon=0)
+            self.zf = torch.mean(torch.stack(self.model.zf), 0)
+        else:
+            self.z_crop_adv = attacker.template(self.z_crop, self.model, epsilon)
+            self.zf = torch.mean(torch.stack(attacker.zf), 0)
 
         return s_z, box, pad
 
@@ -262,15 +265,10 @@ class SiamRPNAttack2Pass(SiameseTracker):
                                     cfg.TRACK.INSTANCE_SIZE,
                                     round(s_x), self.channel_average)
 
-        if attacker is None:
-            outputs = self.model.track(x_crop, iter)
-        else:
-            self.z_crop_adv = attacker.template(self.z_crop, self.model, epsilon)
-            self.zfa = torch.mean(torch.stack(attacker.zf), 0)
-            outputs = attacker.track(x_crop, self.model, iter)
+        outputs = self.model.track(x_crop, iter)
 
-        score, score_softmax = self._convert_score(outputs['cls'], True)
-        pred_bbox = self._convert_bbox(outputs['loc'], self.anchors, True)
+        score_softmax = self._convert_score(outputs['cls'])
+        pred_bbox = self._convert_bbox(outputs['loc'], self.anchors)
 
         def change(r):
             return torch.max(r, 1./r)
@@ -306,29 +304,6 @@ class SiamRPNAttack2Pass(SiameseTracker):
         best_score = score_softmax[best_idx]
         lr = (penalty[best_idx] * best_score * cfg.TRACK.LR).data.cpu().numpy()
 
-        if attacker is not None:
-
-            if iter == 0:
-                self.target_score = score_softmax[sort_idx[45 - 1]]
-
-                self.zf0 = self.zf
-                self.zf_min, idx_min = torch.min(self.zf, 1)
-                self.zf_mean = torch.mean(self.zf, 1)
-                self.z_crop_min, _ = torch.min(self.z_crop, 1)
-                self.z_crop_mean = torch.mean(self.z_crop, 1)
-
-            if debug:
-                img2 = self.z_crop_adv.data.cpu().numpy().squeeze().transpose([1, 2, 0])
-                cv2.imwrite(os.path.join('/media/wattanapongsu/4T/temp/save', 'bag',
-                                     'z'+str(idx).zfill(6)+'_'+str(iter).zfill(2)+'.jpg'), img2)
-
-            l1, l2, l3 = self.cls_loss(score_softmax, pred_bbox, sort_idx, scale_z, img.shape, lr)
-        else:
-            if debug:
-                img2 = self.z_crop.data.cpu().numpy().squeeze().transpose([1, 2, 0])
-                cv2.imwrite(os.path.join('/media/wattanapongsu/4T/temp/save', 'bag',
-                                     'z' + str(idx).zfill(6) + '.jpg'), img2)
-
         cx = bbox[0] + self.center_pos[0]
         cy = bbox[1] + self.center_pos[1]
 
@@ -340,34 +315,21 @@ class SiamRPNAttack2Pass(SiameseTracker):
         cx, cy, width, height = self._bbox_clip(cx, cy, width, height, img.shape[:2])
 
         # update state
-        if attacker is None:
-            self.center_pos = np.array([cx, cy])
-            self.size = np.array([width, height])
+        self.center_pos = np.array([cx, cy])
+        self.size = np.array([width, height])
 
         bbox = [cx - width / 2,
                 cy - height / 2,
                 width,
                 height]
 
-        if attacker is not None:
-            return {
-                    'bbox': bbox,
-                    'best_score': score_softmax[sort_idx[0]],
-                    'target_score': self.target_score,
-                    'l1': l1,
-                    'l2': l2,
-                    'l3': l3,
-                    'center_pos': np.array([cx, cy]),
-                    'size': np.array([width, height])
-                   }
-        else:
-            return {
-                'bbox': bbox,
-                'best_score': score_softmax[sort_idx[0]],
-                'target_score': score_softmax[sort_idx[45 - 1]],
-                'center_pos': np.array([cx, cy]),
-                'size': np.array([width, height])
-            }
+        return {
+            'bbox': bbox,
+            'best_score': score_softmax[sort_idx[0]],
+            'target_score': score_softmax[sort_idx[45 - 1]],
+            'center_pos': np.array([cx, cy]),
+            'size': np.array([width, height])
+        }
 
     def get_subwindow_custom(self, im, pos, model_sz, original_sz, avg_chans):
         """
