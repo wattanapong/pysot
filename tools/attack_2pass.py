@@ -62,6 +62,8 @@ parser.add_argument('--beta', default='0.3', type=float,
                     help='beta')
 parser.add_argument('--epochs', default='2 0', type=int,
                     help='number of epochs')
+parser.add_argument('--video_idx', default=0, type=int,
+                    help='start video from idx')
 parser.add_argument('--vis', action='store_true',
                     help='whether visualize result')
 parser.add_argument('--debug', action='store_true',
@@ -90,19 +92,34 @@ def save(img, imga, szx, boxx, pad, filename, save=False):
             T -= 1
             B -= 1
 
-        if T < 0:
-            B -= T
-            T = 0
-
-        if L < 0:
-            R -= L
-            L = 0
-
-        if B - T - 1 != imga2.shape[1] or R - L - 1 != imga2.shape[1]:
-            pdb.set_trace()
-
         imgn = img.copy()
-        imgn[T:B - 1, L:R - 1, :] = imga2
+
+        bb1 = [T, B - 1, L, R - 1]
+        bb2 = [0, imgn.shape[0], 0, imgn.shape[1]]
+        flag = False
+
+        if T < 0:
+            bb1[:2] = [0, B - 1]
+            bb2[:2] = [-T, B - T - 1]
+            flag = True
+        elif B > imgn.shape[0]:
+            bb1[:2] = [T, imgn.shape[0]]
+            bb2[:2] = [T, imga2.shape[0]]
+            flag = True
+        if L < 0:
+            bb1[2:4] = [0, R - 1]
+            bb2[2:4] = [-L, R - L - 1]
+            flag = True
+        elif R > imgn.shape[1]:
+            bb1[2:4] = [L, imgn.shape[1]]
+            bb2[2:4] = [L, imga2.shape[1]]
+            flag = True
+
+        if flag:
+            imgn[bb1[0]:bb1[1], bb2[0]:bb2[1], :] = imga2[bb1[0]:bb1[1], bb2[0]:bb2[1], :]
+        else:
+            imgn[T:B - 1, L:R - 1, :] = imga2
+
         cv2.imwrite(filename, imgn)
         # imgx = imgn[L:R-1, T:B-1, :]
         # sum(sum(imga2 - imgx))
@@ -261,6 +278,9 @@ def main():
                     if not os.path.exists(os.path.join(args.savedir, video.name)):
                         os.mkdir(os.path.join(args.savedir, video.name))
 
+            elif v_idx < args.video_idx and args.debug:
+                continue
+
             # set writing video parameters
             height, width, channels = video[0][0].shape
             if mode == 'test':
@@ -287,7 +307,7 @@ def main():
                 pbar = tqdm(enumerate(video), position=0, leave=True)
                 _loss = []
                 for idx, (img, gt_bbox) in pbar:
-                    if idx == 100 and args.debug:
+                    if idx == 2 and args.debug:
                        break
                     if len(gt_bbox) == 4:
                         gt_bbox = [gt_bbox[0], gt_bbox[1],
@@ -361,6 +381,8 @@ def main():
 
                     z_adv = attacker.add_noise(tracker.z_crop, attacker.template_average.cuda(), epsilon)
 
+                    if not os.path.exists(os.path.join(args.savedir, state['video_name'])):
+                        os.mkdir(os.path.join(args.savedir, state['video_name']))
                     save(state['zimg'], z_adv, state['sz'], state['init_gt'], state['pad'],
                          os.path.join(args.savedir, state['video_name'], str(epoch).zfill(6) + '.jpg'), save=True)
 
@@ -399,3 +421,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
