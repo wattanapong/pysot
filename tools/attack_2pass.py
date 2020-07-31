@@ -104,7 +104,7 @@ def save(img, imga, szx, boxx, pad, filename, save=False):
             flag = True
         elif B > imgn.shape[0]:
             bb1[:2] = [T, imgn.shape[0]]
-            bb2[:2] = [T, imga2.shape[0]]
+            bb2[:2] = [0, imga2.shape[0] - (B - imgn.shape[0])+1]
             flag = True
         if L < 0:
             bb1[2:4] = [0, R - 1]
@@ -112,11 +112,12 @@ def save(img, imga, szx, boxx, pad, filename, save=False):
             flag = True
         elif R > imgn.shape[1]:
             bb1[2:4] = [L, imgn.shape[1]]
-            bb2[2:4] = [L, imga2.shape[1]]
+            bb2[2:4] = [0, imga2.shape[1] - (R - imgn.shape[1]-1)]
             flag = True
 
         if flag:
-            imgn[bb1[0]:bb1[1], bb2[0]:bb2[1], :] = imga2[bb1[0]:bb1[1], bb2[0]:bb2[1], :]
+            # pdb.set_trace()
+            imgn[bb1[0]:bb1[1], bb1[2]:bb1[3], :] = imga2[bb2[0]:bb2[1], bb2[2]:bb2[3], :]
         else:
             imgn[T:B - 1, L:R - 1, :] = imga2
 
