@@ -206,11 +206,11 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, epoch):
         l2 = _outputs['l2']
         l3 = _outputs['l3']
 
-        # if epoch == 0:
-        #     total_loss = l1 + l2
-        # else:
-        #     total_loss = l1 + l2 + l3
-        total_loss = args.alpha*l1 + args.beta*l2
+        if epoch == 0:
+            total_loss = l1 + l2
+        else:
+            total_loss = l1 + l2 + l3
+        # total_loss = args.alpha*l1 + args.beta*l2
 
         optimizer.zero_grad()
         total_loss.backward()
@@ -346,10 +346,10 @@ def main():
 
                         if idx > 0:
                             _loss.append(loss)
-                            # pbar.set_postfix_str('total %.3f %.3f %.3f %.3f' % (loss[0], loss[1], loss[2], loss[3]))
-                            pbar.set_postfix_str('%d. Video: %s epoch: %d total %.3f %.3f %.3f %.3f %.3f' %
-                                                 (v_idx + 1, video.name, epoch + 1, loss[0], loss[1], loss[2], loss[3],
-                                                  attacker.adv_z.mean()))
+                            # pbar.set_postfix_str('%d. Video: %s epoch: %d total %.3f %.3f %.3f %.3f %.3f' %
+                            #                      (v_idx + 1, video.name, epoch + 1, loss[0], loss[1], loss[2], loss[3],
+                            #                       attacker.adv_z.mean()))
+                            pbar.set_postfix_str('%d. Video: %s epoch: %d ' % (v_idx + 1, video.name, epoch + 1))
                             adv_z.append(attacker.adv_z.data.cpu())
 
                     toc += cv2.getTickCount() - tic
