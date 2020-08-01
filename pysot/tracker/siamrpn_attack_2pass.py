@@ -206,7 +206,7 @@ class SiamRPNAttack2Pass(SiameseTracker):
         s_x = s_z * (cfg.TRACK.INSTANCE_SIZE / cfg.TRACK.EXEMPLAR_SIZE)
 
         self.x_crop, _, _ = self.get_subwindow_custom(img, (bbox[0], bbox[1]), cfg.TRACK.INSTANCE_SIZE, round(s_x),
-                                           self.channel_average)
+                                           self.channel_average, shift=32)
         # self.z_crop_adv = attacker.template(self.z_crop, self.model, epsilon)
         # self.zfa = torch.mean(torch.stack(attacker.zf), 0)
 
@@ -331,7 +331,7 @@ class SiamRPNAttack2Pass(SiameseTracker):
             'size': np.array([width, height])
         }
 
-    def get_subwindow_custom(self, im, pos, model_sz, original_sz, avg_chans):
+    def get_subwindow_custom(self, im, pos, model_sz, original_sz, avg_chans, shift=0):
         """
         args:
             im: bgr based image
@@ -346,7 +346,7 @@ class SiamRPNAttack2Pass(SiameseTracker):
         im_sz = im.shape
         c = (original_sz + 1) / 2
         # context_xmin = round(pos[0] - c) # py2 and py3 round
-        offset = (np.random.rand(1) * 64 - 32)
+        offset = (np.random.rand(1) * 2*shift - shift)
         pos = pos + offset
         context_xmin = np.floor(pos[0] - c + 0.5)
         context_xmax = context_xmin + sz - 1
