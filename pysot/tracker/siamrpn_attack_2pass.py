@@ -33,8 +33,11 @@ class SiamRPNAttack2Pass(SiameseTracker):
         self.model.eval()
         self.zf = None
         self.zfa = None
-
+        self.shift = None
         self.anchor_target = AnchorTarget()
+
+    def generate_transition(self, shift, num):
+        self.shift = shift*np.random.rand(2, num)-shift
 
     def generate_anchor(self, score_size):
         anchors = Anchors(cfg.ANCHOR.STRIDE,
@@ -206,7 +209,7 @@ class SiamRPNAttack2Pass(SiameseTracker):
         s_x = s_z * (cfg.TRACK.INSTANCE_SIZE / cfg.TRACK.EXEMPLAR_SIZE)
 
         self.x_crop, _, _ = self.get_subwindow_custom(img, (bbox[0], bbox[1]), cfg.TRACK.INSTANCE_SIZE, round(s_x),
-                                           self.channel_average, shift=32)
+                                           self.channel_average, idx=idx, shift=32)
         # self.z_crop_adv = attacker.template(self.z_crop, self.model, epsilon)
         # self.zfa = torch.mean(torch.stack(attacker.zf), 0)
 
@@ -331,7 +334,7 @@ class SiamRPNAttack2Pass(SiameseTracker):
             'size': np.array([width, height])
         }
 
-    def get_subwindow_custom(self, im, pos, model_sz, original_sz, avg_chans, shift=0):
+    def get_subwindow_custom(self, im, pos, model_sz, original_sz, avg_chans, idx=0, shift=0):
         """
         args:
             im: bgr based image
@@ -346,8 +349,8 @@ class SiamRPNAttack2Pass(SiameseTracker):
         im_sz = im.shape
         c = (original_sz + 1) / 2
         # context_xmin = round(pos[0] - c) # py2 and py3 round
-        offset = (np.random.rand(1) * 2*shift - shift)
-        pos = pos + offset
+        if shift != 0:
+            pos = pos + self.shift[:, idx]
         context_xmin = np.floor(pos[0] - c + 0.5)
         context_xmax = context_xmin + sz - 1
         # context_ymin = round(pos[1] - c)

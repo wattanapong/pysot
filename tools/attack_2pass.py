@@ -306,6 +306,9 @@ def main():
             attacker = ModelAttacker().cuda().train()
             optimizer = optim.Adam(attacker.parameters(), lr=lr)
 
+            # generate cropping offset
+            tracker.generate_transition(64, len(video))
+
             for epoch in range(0, args.epochs):
                 pbar = tqdm(enumerate(video), position=0, leave=True)
                 _loss = []
