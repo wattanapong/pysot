@@ -16,6 +16,8 @@ from pysot.tracker.base_tracker import SiameseTracker
 from pysot.datasets.anchor_target import AnchorTarget
 from pysot.utils.bbox import get_min_max_bbox, center2corner, Center, get_axis_aligned_bbox
 
+torch.manual_seed(1999)
+np.random.seed(1999)
 
 class SiamRPNAttack2Pass(SiameseTracker):
     def __init__(self, model):
@@ -344,6 +346,8 @@ class SiamRPNAttack2Pass(SiameseTracker):
         im_sz = im.shape
         c = (original_sz + 1) / 2
         # context_xmin = round(pos[0] - c) # py2 and py3 round
+        offset = (np.random.rand(1) * 64 - 32)
+        pos = pos + offset
         context_xmin = np.floor(pos[0] - c + 0.5)
         context_xmax = context_xmin + sz - 1
         # context_ymin = round(pos[1] - c)
