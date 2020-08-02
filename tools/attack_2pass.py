@@ -313,7 +313,7 @@ def main():
                 pbar = tqdm(enumerate(video), position=0, leave=True)
                 _loss = []
                 for idx, (img, gt_bbox) in pbar:
-                    if idx == 2 and args.debug:
+                    if idx == 100 and args.debug:
                         break
                     if len(gt_bbox) == 4:
                         gt_bbox = [gt_bbox[0], gt_bbox[1],
@@ -382,11 +382,12 @@ def main():
                 toc /= cv2.getTickFrequency()
 
                 if mode == 'train':
-                    attacker.template_average = sum(adv_z) / len(adv_z)
-                    attacker.template_average[attacker.template_average != attacker.template_average] = 0
-                    attacker.template_average = torch.clamp(attacker.template_average.data, min=0, max=1)
+                    # attacker.template_average = sum(adv_z) / len(adv_z)
+                    # attacker.template_average[attacker.template_average != attacker.template_average] = 0
+                    # attacker.template_average = torch.clamp(attacker.template_average.data, min=0, max=1)
 
-                    z_adv = attacker.add_noise(tracker.z_crop, attacker.template_average.cuda(), epsilon)
+                    # z_adv = attacker.add_noise(tracker.z_crop, attacker.template_average.cuda(), epsilon)
+                    z_adv = attacker.add_noise(tracker.z_crop, attacker.adv_z, epsilon)
 
                     if not os.path.exists(os.path.join(args.savedir, state['video_name'])):
                         os.mkdir(os.path.join(args.savedir, state['video_name']))

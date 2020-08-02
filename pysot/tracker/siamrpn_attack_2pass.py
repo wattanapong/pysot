@@ -119,7 +119,7 @@ class SiamRPNAttack2Pass(SiameseTracker):
 
     # min confident score
     def l2_loss(self, score, sort_idx, th):
-        confidence_loss = torch.sum(score[sort_idx[:th]]) - torch.sum(score[sort_idx[th * 3:th * 4]])
+        confidence_loss = torch.sum(score[sort_idx[:th]]) - torch.sum(score[sort_idx[th * 300:th * 301]])
         return confidence_loss
 
     # def l3_loss(self, z_crop, z_crop_a):
