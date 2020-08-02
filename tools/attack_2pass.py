@@ -106,7 +106,7 @@ def save(img, imga, szx, boxx, pad, filename, save=False):
             flag = True
         elif B > imgn.shape[0]:
             bb1[:2] = [T, imgn.shape[0]]
-            bb2[:2] = [0, imga2.shape[0] - (B - imgn.shape[0])+1]
+            bb2[:2] = [0, imga2.shape[0] - (B - imgn.shape[0]) + 1]
             flag = True
         if L < 0:
             bb1[2:4] = [0, R - 1]
@@ -114,7 +114,7 @@ def save(img, imga, szx, boxx, pad, filename, save=False):
             flag = True
         elif R > imgn.shape[1]:
             bb1[2:4] = [L, imgn.shape[1]]
-            bb2[2:4] = [0, imga2.shape[1] - (R - imgn.shape[1]-1)]
+            bb2[2:4] = [0, imga2.shape[1] - (R - imgn.shape[1] - 1)]
             flag = True
 
         if flag:
@@ -208,11 +208,10 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, epoch):
         l2 = _outputs['l2']
         l3 = _outputs['l3']
 
-        if epoch == 0:
-            total_loss = l1 + l2
+        if idx == 1:
+            total_loss = args.alpha * l1 + args.beta * l2
         else:
-            total_loss = args.alpha*l1 + args.beta*l2 + args.gamma*l3
-        # total_loss = args.alpha*l1 + args.beta*l2
+            total_loss = args.alpha * l1 + args.beta * l2 + args.gamma * l3
 
         optimizer.zero_grad()
         total_loss.backward()
@@ -223,7 +222,8 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, epoch):
         # save(state['zimg'], attacker.perturb(tracker.z_crop, args.epsilon), state['sz'], state['init_gt'], state['pad'],
         #     os.path.join(args.savedir, state['video_name'], str(idx).zfill(6) + '.jpg'), save=True)
 
-    return state, [total_loss.item(), l1.item(), l2.item(), l3.item() if epoch > 0 else 0] if idx > 0 else 0
+    # return state, [total_loss.item(), l1.item(), l2.item(), l3.item() if epoch > 0 else 0] if idx > 0 else 0
+    return state, [total_loss.item(), l1.item(), l2.item(), l3.item()] if idx > 0 else 0
 
 
 def main():
@@ -288,7 +288,7 @@ def main():
             height, width, channels = video[0][0].shape
             if mode == 'test':
                 out = cv2.VideoWriter(os.path.join(args.savedir, video.name + '.avi'),
-                                  cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'), 15, (width, height))
+                                      cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'), 15, (width, height))
             frame_counter = 0
             frame_counter_adv = 0
             lost_number = 0
@@ -314,7 +314,7 @@ def main():
                 _loss = []
                 for idx, (img, gt_bbox) in pbar:
                     if idx == 2 and args.debug:
-                       break
+                        break
                     if len(gt_bbox) == 4:
                         gt_bbox = [gt_bbox[0], gt_bbox[1],
                                    gt_bbox[0], gt_bbox[1] + gt_bbox[3] - 1,
@@ -331,7 +331,6 @@ def main():
                     ##########################################
                     if mode == 'test':
                         pred_bbox, _lost, frame_counter = stoa_track(idx, frame_counter, img, gt_bbox, tracker0)
-
 
                     ##########################################
                     # # # # #  adversarial tracking  # # # # #
@@ -355,6 +354,8 @@ def main():
                             #                      (v_idx + 1, video.name, epoch + 1, loss[0], loss[1], loss[2], loss[3],
                             #                       attacker.adv_z.mean()))
                             pbar.set_postfix_str('%d. Video: %s epoch: %d ' % (v_idx + 1, video.name, epoch + 1))
+                            # pbar.set_postfix_str('%d. Video: %s epoch: %d total %.3f %.3f %.3f %.3f' %
+                            #                      (v_idx + 1, video.name, epoch + 1, loss[0], loss[1], loss[2], loss[3]))
                             adv_z.append(attacker.adv_z.data.cpu())
 
                     toc += cv2.getTickCount() - tic
@@ -383,7 +384,7 @@ def main():
                 if mode == 'train':
                     attacker.template_average = sum(adv_z) / len(adv_z)
                     attacker.template_average[attacker.template_average != attacker.template_average] = 0
-                    attacker.template_average = torch.clamp(attacker.template_average.data, min = 0, max = 1)
+                    attacker.template_average = torch.clamp(attacker.template_average.data, min=0, max=1)
 
                     z_adv = attacker.add_noise(tracker.z_crop, attacker.template_average.cuda(), epsilon)
 
@@ -393,10 +394,11 @@ def main():
                          os.path.join(args.savedir, state['video_name'], str(epoch).zfill(6) + '.jpg'), save=True)
 
                     _loss = np.asarray(_loss)
+
                     _loss_v = sum(_loss, 0) / _loss.shape[0]
                     pbar.clear()
                     print('%d. Video: %s Time: %.2fs  epoch: %d total %.3f %.3f %.3f %.3f' %
-                                         (v_idx + 1, video.name, toc, epoch + 1, _loss_v[0], _loss_v[1], _loss_v[2], _loss_v[3]))
+                          (v_idx + 1, video.name, toc, epoch + 1, _loss_v[0], _loss_v[1], _loss_v[2], _loss_v[3]))
             if mode == 'test':
                 # save results
                 if args.dataset == 'OTB100':
@@ -427,4 +429,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
