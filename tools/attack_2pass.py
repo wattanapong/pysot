@@ -304,7 +304,8 @@ def main():
             tracker = build_tracker(track_model)
 
             attacker = ModelAttacker().cuda().train()
-            optimizer = optim.Adam(attacker.parameters(), lr=lr)
+            # optimizer = optim.Adam(attacker.parameters(), lr=lr)
+            optimizer = optim.SGD(attacker.parameters(), lr=lr, momentum=0.9)
 
             # load pretrained
             start_epoch = 0
