@@ -258,7 +258,7 @@ def main():
                                             load_img=False,
                                             dataset_toolkit='oneshot',
                                             config=cfg)
-    #
+
     # vid.name = {'ants1','ants3',....}
     # img, bbox, cls, delta, delta_weight
     # vid[0][0],vid[0][1],vid[0][2],vid[0][3],vid[0][4]
@@ -306,12 +306,32 @@ def main():
             attacker = ModelAttacker().cuda().train()
             optimizer = optim.Adam(attacker.parameters(), lr=lr)
 
+            # load pretrained
+            start_epoch = 0
+            if os.path.exists(os.path.join(args.savedir, 'checkpoint', video.name)):
+                entries = os.listdir(os.path.join(args.savedir, 'checkpoint', video.name))
+                if len(entries) > 0:
+                    entries.sort()
+                    start_epoch = int(entries[-1][-7:-4]) if entries[-1][-7:-4].isnumeric() else 0
+
+            if start_epoch > 0:
+                state = torch.load(os.path.join(args.savedir, 'checkpoint', video.name, entries[-1]))
+                attacker.load_state_dict(state['attacker'])
+                optimizer.load_state_dict(state['optimizer'])
+
             # generate cropping offset
             tracker.generate_transition(64, len(video))
 
             for epoch in range(0, args.epochs):
                 pbar = tqdm(enumerate(video), position=0, leave=True)
                 _loss = []
+
+                if epoch < start_epoch:
+                    continue
+
+                if mode == 'test' and epoch == 1:
+                    break
+
                 for idx, (img, gt_bbox) in pbar:
                     if idx == 100 and args.debug:
                         break
@@ -400,6 +420,19 @@ def main():
                     pbar.clear()
                     print('%d. Video: %s Time: %.2fs  epoch: %d total %.3f %.3f %.3f %.3f' %
                           (v_idx + 1, video.name, toc, epoch + 1, _loss_v[0], _loss_v[1], _loss_v[2], _loss_v[3]))
+
+                    # save state dict
+                    state_dict = {
+                        'attacker': attacker.state_dict(),
+                        'optimizer': optimizer.state_dict(),
+                        'epoch': epoch+1
+                    }
+
+                    checkpoint_path = os.path.join(args.savedir, 'checkpoint', video.name)
+                    if not os.path.exists(checkpoint_path):
+                        os.makedirs(checkpoint_path)
+                    torch.save(state_dict, os.path.join(checkpoint_path, 'checkpoint_'+str(epoch+1).zfill(3)+'.pth'))
+
             if mode == 'test':
                 # save results
                 if args.dataset == 'OTB100':
