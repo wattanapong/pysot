@@ -326,14 +326,14 @@ def main():
                 pbar = tqdm(enumerate(video), position=0, leave=True)
                 _loss = []
 
-                if epoch < start_epoch:
+                if epoch < start_epoch and mode == 'train':
                     continue
 
-                if mode == 'test' and epoch == 1:
+                if mode == 'test' and epoch > 0:
                     break
 
                 for idx, (img, gt_bbox) in pbar:
-                    if idx == 100 and args.debug:
+                    if idx == 100 and args.debug and mode == 'train':
                         break
                     if len(gt_bbox) == 4:
                         gt_bbox = [gt_bbox[0], gt_bbox[1],
