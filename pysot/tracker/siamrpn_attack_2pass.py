@@ -37,7 +37,7 @@ class SiamRPNAttack2Pass(SiameseTracker):
         self.anchor_target = AnchorTarget()
 
     def generate_transition(self, shift, num):
-        self.shift = shift*np.random.rand(2, num)-shift
+        self.shift = torch.from_numpy(shift*np.random.rand(2, num)-shift)
 
     def generate_anchor(self, score_size):
         anchors = Anchors(cfg.ANCHOR.STRIDE,
@@ -378,8 +378,6 @@ class SiamRPNAttack2Pass(SiameseTracker):
             s_z: original size
             avg_chans: channel average
         """
-        _pos = torch.zeros_like(pos)
-
         batch = im.shape[0]
 
         im_patch = torch.zeros([batch, 3, model_sz, model_sz])
