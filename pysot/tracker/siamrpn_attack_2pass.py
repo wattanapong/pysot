@@ -57,6 +57,28 @@ class SiamRPNAttack2Pass(SiameseTracker):
         anchor[:, 0], anchor[:, 1] = xx.astype(np.float32), yy.astype(np.float32)
         return anchor
 
+    def _convert_bboxes(self, delta, anchor):
+        batch = delta.shape[0]
+        delta = delta.permute(1, 2, 3, 0).contiguous().view(4, -1, batch)
+
+        anchor = torch.from_numpy(anchor).cuda()
+
+        anchor = anchor.contiguous().view(-1, 1).repeat(1, batch).view(-1, 4, batch)
+        delta[0, :, :] = delta[0, :, :] * anchor[:, 2, :] + anchor[:, 0, :]
+        delta[1, :, :] = delta[1, :, :] * anchor[:, 3, :] + anchor[:, 1, :]
+
+        delta[2, :, :] = torch.exp(delta[2, :, :]) * anchor[:, 2, :]
+        delta[3, :, :] = torch.exp(delta[3, :, :]) * anchor[:, 3, :]
+
+        return delta
+
+    def _convert_scores(self, score):
+        batch = score.shape[0]
+        score = score.permute(1, 2, 3, 0).contiguous().view(2, -1, batch).permute(2, 1, 0)
+        score_softmax = F.softmax(score, dim=2)[:, :, 1]
+
+        return score_softmax
+
     def _convert_bbox(self, delta, anchor):
         delta = delta.permute(1, 2, 3, 0).contiguous().view(4, -1)
 
@@ -107,19 +129,24 @@ class SiamRPNAttack2Pass(SiameseTracker):
     def l1_loss(self, pred_box_a, pred_box, lr, idx):
         a = 0.3
         b = 0.7
-
         xa, ya, wa, ha = pred_box_a
-        x, y, w, h = pred_box
-        wa = torch.tensor(self.size[0]).cuda() * (1 - lr) + wa * lr
-        ha = torch.tensor(self.size[1]).cuda() * (1 - lr) + ha * lr
-        c_loss = -1 * torch.sum(torch.sqrt((xa - self.shift[0, idx]) ** 2 + (ya - self.shift[1, idx]) ** 2))
+        # x, y, w, h = pred_box
+        # wa = torch.tensor(self.size[0]).cuda() * (1 - lr) + wa * lr
+        # ha = torch.tensor(self.size[1]).cuda() * (1 - lr) + ha * lr
+        c_loss = -1 * torch.sqrt((xa - self.shift[0, idx]) ** 2 + (ya - self.shift[1, idx]) ** 2)
         # shape_loss = -1 * torch.sum(torch.sqrt((wa - w)**2+(ha - h)**2))
         # return c_loss + shape_loss
         return c_loss
 
     # min confident score
     def l2_loss(self, score, sort_idx, th):
-        confidence_loss = torch.sum(score[sort_idx[:th]]) - torch.sum(score[sort_idx[th * 300:th * 301]])
+        batch = sort_idx.shape[0]
+        first_order = torch.zeros(batch).cuda()
+        second_order = torch.zeros(batch).cuda()
+        for i in range(0, batch):
+            first_order[i] = torch.sum(score[i, sort_idx[i, :th]])
+            second_order[i] = torch.sum(score[i, sort_idx[i, th * 300:th * 301]])
+        confidence_loss = first_order - second_order
         return confidence_loss
 
     # def l3_loss(self, z_crop, z_crop_a):
@@ -204,7 +231,7 @@ class SiamRPNAttack2Pass(SiameseTracker):
         if update:
             return s_z, box, pad
 
-    def train(self, img, attacker=None, bbox=None, epsilon=0, idx=0, batch=200, debug=False):
+    def train(self, img, attacker=None, bbox=None, epsilon=0, idx=0, batch=1, debug=False):
         w_z = self.size[0] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
         h_z = self.size[1] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
 
@@ -212,15 +239,18 @@ class SiamRPNAttack2Pass(SiameseTracker):
         scale_z = cfg.TRACK.EXEMPLAR_SIZE / s_z
         s_x = s_z * (cfg.TRACK.INSTANCE_SIZE / cfg.TRACK.EXEMPLAR_SIZE)
 
-        self.x_crop, _, _ = self.get_subwindow_custom(img, (bbox[0], bbox[1]), cfg.TRACK.INSTANCE_SIZE, round(s_x),
-                                           self.channel_average, idx=idx, shift=32)
+        self.x_crops = self.get_subwindow_customs(img, torch.stack([bbox[0], bbox[1]]), cfg.TRACK.INSTANCE_SIZE,
+                                                       round(s_x), self.channel_average, idx=idx)
         # self.z_crop_adv = attacker.template(self.z_crop, self.model, epsilon)
         # self.zfa = torch.mean(torch.stack(attacker.zf), 0)
 
-        outputs = attacker(self.x_crop, self.model, iter)
+        outputs = attacker(self.x_crops.cuda(), self.model, iter)
 
-        score_softmax = self._convert_score(outputs['cls'])
-        pred_bbox = self._convert_bbox(outputs['loc'], self.anchors)
+        # score_softmax = self._convert_score(outputs['cls'])
+        # pred_bbox = self._convert_bbox(outputs['loc'], self.anchors)
+
+        score_softmax = self._convert_scores(outputs['cls'])
+        pred_bbox = self._convert_bboxes(outputs['loc'], self.anchors)
 
         # max_score.values and max_score.indices
         _, sort_idx = torch.sort(-score_softmax)
@@ -244,18 +274,21 @@ class SiamRPNAttack2Pass(SiameseTracker):
 
         penalty = torch.exp(-(r_c * s_c - 1) * cfg.TRACK.PENALTY_K).cuda()
 
-        lr = (penalty[sort_idx[0]] * score_softmax[sort_idx[0]] * cfg.TRACK.LR).data
+        _batch = img.shape[0]
+        lr = torch.zeros(_batch).cuda()
+        pred_bbox_a = torch.zeros(4, _batch).cuda()
+        for i in range(0, _batch):
+            lr[i] = (penalty[sort_idx[i, 0], i] * score_softmax[i, sort_idx[i, 0]] * cfg.TRACK.LR).data
+            pred_bbox_a[:, i] = pred_bbox[:, sort_idx[i, 0], i]
 
-        l1 = self.l1_loss(pred_bbox[:, sort_idx[0]], bbox, lr, idx)
-
+        l1 = self.l1_loss(pred_bbox_a, bbox, lr, idx)
         l2 = self.l2_loss(score_softmax, sort_idx, 50)
 
-        l3 = self.l3_loss(attacker.adv_z)
+        # l3 = self.l3_loss(attacker.adv_z)
 
         return {
             'l1': l1,
-            'l2': l2,
-            'l3': l3
+            'l2': l2
         }
 
     def track(self, img, attacker=None, epsilon=0, idx=0, iter=0, debug=False):
@@ -336,7 +369,27 @@ class SiamRPNAttack2Pass(SiameseTracker):
             'size': np.array([width, height])
         }
 
-    def get_subwindow_custom(self, im, pos, model_sz, original_sz, avg_chans, idx=0, shift=0):
+    def get_subwindow_customs(self, im, pos, model_sz, original_sz, avg_chans, idx=0):
+        """
+        args:
+            im: bgr based image
+            pos: center position
+            model_sz: exemplar size
+            s_z: original size
+            avg_chans: channel average
+        """
+        _pos = torch.zeros_like(pos)
+
+        batch = im.shape[0]
+
+        im_patch = torch.zeros([batch, 3, model_sz, model_sz])
+        for i in range(0, im.shape[0]):
+            _im_patch, _, _ = self.get_subwindow_custom(im[i], pos[:, i], model_sz, original_sz, avg_chans, idx + i,
+                                                        True)
+            im_patch[i, :, :, :] = _im_patch.squeeze()
+        return im_patch
+
+    def get_subwindow_custom(self, im, pos, model_sz, original_sz, avg_chans, idx=0, shift=False):
         """
         args:
             im: bgr based image
@@ -351,7 +404,7 @@ class SiamRPNAttack2Pass(SiameseTracker):
         im_sz = im.shape
         c = (original_sz + 1) / 2
         # context_xmin = round(pos[0] - c) # py2 and py3 round
-        if shift != 0:
+        if shift:
             pos = pos + self.shift[:, idx]
         context_xmin = np.floor(pos[0] - c + 0.5)
         context_xmax = context_xmin + sz - 1
@@ -377,13 +430,13 @@ class SiamRPNAttack2Pass(SiameseTracker):
                 te_im = np.zeros(size, np.uint8)
             te_im[top_pad:top_pad + r, left_pad:left_pad + c, :] = im
             if top_pad:
-                te_im[0:top_pad, left_pad:left_pad + c, :] = avg_chans
+                te_im[0:top_pad, left_pad:left_pad + c, :] = torch.from_numpy(avg_chans)
             if bottom_pad:
-                te_im[r + top_pad:, left_pad:left_pad + c, :] = avg_chans
+                te_im[r + top_pad:, left_pad:left_pad + c, :] = torch.from_numpy(avg_chans)
             if left_pad:
-                te_im[:, 0:left_pad, :] = avg_chans
+                te_im[:, 0:left_pad, :] = torch.from_numpy(avg_chans)
             if right_pad:
-                te_im[:, c + left_pad:, :] = avg_chans
+                te_im[:, c + left_pad:, :] = torch.from_numpy(avg_chans)
             im_patch = te_im[int(context_ymin):int(context_ymax + 1),
                              int(context_xmin):int(context_xmax + 1), :]
         else:

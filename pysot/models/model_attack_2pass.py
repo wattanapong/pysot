@@ -51,7 +51,6 @@ class ModelAttacker(nn.Module):
             zf = tracker.neck(zf)
 
         self.zf = zf
-
         return z
 
     def forward(self, x, tracker, iter=0):
@@ -63,9 +62,14 @@ class ModelAttacker(nn.Module):
         if cfg.ADJUST.ADJUST:
             xf = tracker.neck(xf)
 
-        self.xf = xf
+        _, d, w, h = self.zf[0].shape
+        batch = xf[0].shape[0]
 
-        cls, loc = tracker.rpn_head(self.zf, self.xf)
+        if self.zf[0].shape[0] == 1 or self.zf[0].shape[0] != batch:
+            for i in range(0, 3):
+                self.zf[i] = self.zf[i].contiguous().view(-1, 1).repeat(1, batch).view(d, w, h, -1).permute(3, 0, 1, 2)
+
+        cls, loc = tracker.rpn_head(self.zf, xf)
 
         return {
                 'cls': cls,

@@ -133,6 +133,34 @@ def get_axis_aligned_bbox(region):
         cy = y+h/2
     return cx, cy, w, h
 
+def get_axis_aligned_bbox_tensor(region):
+    """ convert region to (cx, cy, w, h) that represent by axis aligned box
+    """
+    import torch
+    nv, _ = region.shape
+
+    if nv == 8:
+        cx = torch.mean(region[0::2], dim=0)
+        cy = torch.mean(region[1::2], dim=0)
+        x1, _ = torch.min(region[0::2], dim=0)
+        x2, _ = torch.max(region[0::2], dim=0)
+        y1, _ = torch.min(region[1::2], dim=0)
+        y2, _ = torch.max(region[1::2], dim=0)
+        A1 = torch.norm(region[0:2] - region[2:4], dim=0) * \
+            torch.norm(region[2:4] - region[4:6], dim=0)
+        A2 = (x2 - x1) * (y2 - y1)
+        s = torch.sqrt(A1 / A2)
+        w = s * (x2 - x1) + 1
+        h = s * (y2 - y1) + 1
+    else:
+        x = region[0]
+        y = region[1]
+        w = region[2]
+        h = region[3]
+        cx = x+w/2
+        cy = y+h/2
+    return cx, cy, w, h
+
 
 def get_min_max_bbox(region):
     """ convert region to (cx, cy, w, h) that represent by mim-max box

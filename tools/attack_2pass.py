@@ -12,19 +12,20 @@ import cv2
 import torch
 import numpy as np
 import torch.nn.functional as F
+import math
 import pdb
 from torchvision.transforms import ToTensor, ToPILImage
 
-from torch.utils.data import DataLoader
 from pysot.core.config import cfg
 from pysot.models.model_builder_oneshot import ModelBuilder
 from pysot.models.model_attack_2pass import ModelAttacker
 from pysot.tracker.tracker_builder import build_tracker
-from pysot.utils.bbox import get_axis_aligned_bbox
+from pysot.utils.bbox import get_axis_aligned_bbox, get_axis_aligned_bbox_tensor
 from pysot.utils.model_load import load_pretrain
 from toolkit.datasets import DatasetFactory
 from toolkit.utils.region import vot_overlap, vot_float2str
 from tqdm import tqdm
+from pysot.datasets.myDataset import MyDataset
 
 from torch.utils.data import DataLoader
 from pysot.datasets.two_pass_dataset import TwoPassDataset
@@ -52,7 +53,7 @@ parser.add_argument('--epsilon', default='0.1', type=float,
                     help='fgsm epsilon')
 parser.add_argument('--mode', default='train', type=str,
                     help='train or test mode')
-parser.add_argument('--batch', default=200, type=int,
+parser.add_argument('--batch', default=16, type=int,
                     help='batch size')
 parser.add_argument('--lr', default='1e-4', type=float,
                     help='learning rate')
@@ -202,28 +203,31 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, epoch):
             tracker.init(state['zimg'], state['init_gt'], attacker=attacker, epsilon=args.epsilon, update=True)
     if idx > 0:
         tracker.init(state['zimg'], state['init_gt'], attacker=attacker, epsilon=args.epsilon, update=False)
-        _outputs = tracker.train(img, attacker=attacker, bbox=[cx, cy, w, h], epsilon=args.epsilon, batch=args.batch)
+        _outputs = tracker.train(img, attacker=attacker, bbox=torch.stack([cx, cy, w, h]), epsilon=args.epsilon,
+                                 batch=args.batch, idx=idx)
 
         l1 = _outputs['l1']
         l2 = _outputs['l2']
-        l3 = _outputs['l3']
+        # l3 = _outputs['l3']
 
-        if idx == 1:
-            total_loss = args.alpha * l1 + args.beta * l2
-        else:
-            total_loss = args.alpha * l1 + args.beta * l2 + args.gamma * l3
+        # if idx == 1:
+        #     total_loss = args.alpha * l1 + args.beta * l2
+        # else:
+        #     total_loss = args.alpha * l1 + args.beta * l2 + args.gamma * l3
+
+        total_loss = args.alpha * l1 + args.beta * l2
 
         optimizer.zero_grad()
-        total_loss.backward()
+        total_loss.sum().backward()
         optimizer.step()
-        with torch.no_grad():
-            attacker.adv_z[attacker.adv_z != attacker.adv_z] = 0
+        # with torch.no_grad():
+        #     attacker.adv_z[attacker.adv_z != attacker.adv_z] = 0
 
         # save(state['zimg'], attacker.perturb(tracker.z_crop, args.epsilon), state['sz'], state['init_gt'], state['pad'],
         #     os.path.join(args.savedir, state['video_name'], str(idx).zfill(6) + '.jpg'), save=True)
 
     # return state, [total_loss.item(), l1.item(), l2.item(), l3.item() if epoch > 0 else 0] if idx > 0 else 0
-    return state, [total_loss.item(), l1.item(), l2.item(), l3.item()] if idx > 0 else 0
+    return state, [total_loss.sum().item(), l1.sum().item(), l2.sum().item()] if idx > 0 else 0
 
 
 def main():
@@ -290,11 +294,7 @@ def main():
                 out = cv2.VideoWriter(os.path.join(args.savedir, video.name + '.avi'),
                                       cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'), 15, (width, height))
             frame_counter = 0
-            frame_counter_adv = 0
-            lost_number = 0
-            lost_number_adv = 0
             toc = 0
-            pred_bboxes = []
             pred_bboxes_adv = []
             adv_z = []
 
@@ -323,65 +323,47 @@ def main():
             # generate cropping offset
             tracker.generate_transition(64, len(video))
 
+            training_data = MyDataset()
+            num_frames = len(video)
+
+            iter = math.ceil((num_frames-1) / args.batch)
+            params = {'batch_size': args.batch,
+                      'shuffle': False,
+                      'num_workers': 6}
+            for i in range(0, iter-1):
+                for j in range(0, args.batch):
+                    training_data.add([video[i*args.batch+j][0], video[i*args.batch+j][1]])
+
+            for j in range(0, num_frames - 1 - (iter-1)*args.batch):
+                training_data.add([video[(iter-1) * args.batch + j][0], video[(iter-1) * args.batch + j][1]])
+            data_loader = torch.utils.data.DataLoader(training_data, **params)
+
             for epoch in range(0, args.epochs):
-                pbar = tqdm(enumerate(video), position=0, leave=True)
-                _loss = []
 
-                if epoch < start_epoch and mode == 'train':
-                    continue
-
-                if mode == 'test' and epoch > 0:
-                    break
-
-                for idx, (img, gt_bbox) in pbar:
-                    if idx == 100 and args.debug and mode == 'train':
+                ##########################################
+                # # #  for state of the art tracking # # #
+                ##########################################
+                if mode == 'test':
+                    if epoch > 0:
                         break
-                    if len(gt_bbox) == 4:
-                        gt_bbox = [gt_bbox[0], gt_bbox[1],
-                                   gt_bbox[0], gt_bbox[1] + gt_bbox[3] - 1,
-                                   gt_bbox[0] + gt_bbox[2] - 1, gt_bbox[1] + gt_bbox[3] - 1,
-                                   gt_bbox[0] + gt_bbox[2] - 1, gt_bbox[1]]
 
-                    cx, cy, w, h = get_axis_aligned_bbox(np.array(gt_bbox))
-                    gt_bbox_ = [cx - (w - 1) / 2, cy - (h - 1) / 2, w, h]
+                    pbar = tqdm(enumerate(video), position=0, leave=True)
 
-                    tic = cv2.getTickCount()
+                    for idx, (img, gt_bbox) in pbar:
 
-                    ##########################################
-                    # # #  for state of the art tracking # # #
-                    ##########################################
-                    if mode == 'test':
+                        if len(gt_bbox) == 4:
+                            gt_bbox = [gt_bbox[0], gt_bbox[1],
+                                       gt_bbox[0], gt_bbox[1] + gt_bbox[3] - 1,
+                                       gt_bbox[0] + gt_bbox[2] - 1, gt_bbox[1] + gt_bbox[3] - 1,
+                                       gt_bbox[0] + gt_bbox[2] - 1, gt_bbox[1]]
+
+                        cx, cy, w, h = get_axis_aligned_bbox(np.array(gt_bbox))
+                        gt_bbox_ = [cx - (w - 1) / 2, cy - (h - 1) / 2, w, h]
+
+                        tic = cv2.getTickCount()
                         pred_bbox, _lost, frame_counter = stoa_track(idx, frame_counter, img, gt_bbox, tracker0)
+                        toc += cv2.getTickCount() - tic
 
-                    ##########################################
-                    # # # # #  adversarial tracking  # # # # #
-                    ##########################################
-                    if idx == 0:
-                        state = {
-                            'img': img,
-                            'gt_bbox': gt_bbox_,
-                            'video_name': video.name
-                        }
-                    else:
-                        state['img'] = img
-
-                    if mode == 'train':
-                        state, loss = \
-                            adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox_, epoch)
-
-                        if idx > 0:
-                            _loss.append(loss)
-                            # pbar.set_postfix_str('%d. Video: %s epoch: %d total %.3f %.3f %.3f %.3f %.3f' %
-                            #                      (v_idx + 1, video.name, epoch + 1, loss[0], loss[1], loss[2], loss[3],
-                            #                       attacker.adv_z.mean()))
-                            pbar.set_postfix_str('%d. Video: %s epoch: %d ' % (v_idx + 1, video.name, epoch + 1))
-                            # pbar.set_postfix_str('%d. Video: %s epoch: %d total %.3f %.3f %.3f %.3f' %
-                            #                      (v_idx + 1, video.name, epoch + 1, loss[0], loss[1], loss[2], loss[3]))
-                            adv_z.append(attacker.adv_z.data.cpu())
-
-                    toc += cv2.getTickCount() - tic
-
-                    if mode == 'test':
                         if idx > 0:
                             bbox = list(map(int, pred_bbox))
                             cv2.rectangle(img, (bbox[0], bbox[1]),
@@ -399,6 +381,62 @@ def main():
                         cv2.putText(img, str(idx), (40, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
 
                         out.write(img)
+
+                elif mode == 'train':
+
+                    if epoch < start_epoch:
+                        continue
+
+                    # initial frame
+                    img, gt_bbox = video[0]
+                    if len(gt_bbox) == 4:
+                        gt_bbox = [gt_bbox[0], gt_bbox[1],
+                                   gt_bbox[0], gt_bbox[1] + gt_bbox[3] - 1,
+                                   gt_bbox[0] + gt_bbox[2] - 1, gt_bbox[1] + gt_bbox[3] - 1,
+                                   gt_bbox[0] + gt_bbox[2] - 1, gt_bbox[1]]
+                    cx, cy, w, h = get_axis_aligned_bbox(np.array(gt_bbox))
+                    gt_bbox_ = [cx - (w - 1) / 2, cy - (h - 1) / 2, w, h]
+                    state = {
+                        'img': img,
+                        'gt_bbox': gt_bbox_,
+                        'video_name': video.name
+                    }
+
+                    state, loss = adversarial_train(0, state, attacker, tracker, optimizer, gt_bbox_, epoch)
+                    pbar = tqdm(enumerate(data_loader), position=0, leave=True)
+                    _loss = []
+
+                    for (_idx, (idx, (imgs, gt_bboxes))) in enumerate(pbar):
+                        if len(gt_bboxes[0]) == 4:
+                            gt_bboxes = (gt_bboxes[:, 0], gt_bboxes[:, 1],
+                                       gt_bboxes[:, 0], gt_bboxes[:, 1] + gt_bboxes[:, 3] - 1,
+                                       gt_bboxes[:, 0] + gt_bboxes[:, 2] - 1, gt_bboxes[:, 1] + gt_bboxes[:, 3] - 1,
+                                       gt_bboxes[:, 0] + gt_bboxes[:, 2] - 1, gt_bboxes[:, 1])
+
+                        gt_bboxes = torch.stack(gt_bboxes).float()
+                        cx, cy, w, h = get_axis_aligned_bbox_tensor(gt_bboxes)
+                        gt_bboxes_ = torch.stack([cx, cy, w, h])
+
+                        tic = cv2.getTickCount()
+
+                        ##########################################
+                        # # # # #  adversarial tracking  # # # # #
+                        ##########################################
+                        state['img'] = imgs
+
+                        state, loss = adversarial_train(args.batch * idx + 1, state, attacker, tracker, optimizer,
+                                                        gt_bboxes_, epoch)
+                        if idx > 0:
+                            _loss.append(loss)
+                            # pbar.set_postfix_str('%d. Video: %s epoch: %d total %.3f %.3f %.3f %.3f %.3f' %
+                            #                      (v_idx + 1, video.name, epoch + 1, loss[0], loss[1], loss[2], loss[3],
+                            #                       attacker.adv_z.mean()))
+                            pbar.set_postfix_str('%d. Video: %s epoch: %d ' % (v_idx + 1, video.name, epoch + 1))
+                            # pbar.set_postfix_str('%d. Video: %s epoch: %d total %.3f %.3f %.3f %.3f' %
+                            #                      (v_idx + 1, video.name, epoch + 1, loss[0], loss[1], loss[2], loss[3]))
+                            adv_z.append(attacker.adv_z.data.cpu())
+
+                        toc += cv2.getTickCount() - tic
 
                 toc /= cv2.getTickFrequency()
 
@@ -419,8 +457,8 @@ def main():
 
                     _loss_v = sum(_loss, 0) / _loss.shape[0]
                     pbar.clear()
-                    print('%d. Video: %s Time: %.2fs  epoch: %d total %.3f %.3f %.3f %.3f' %
-                          (v_idx + 1, video.name, toc, epoch + 1, _loss_v[0], _loss_v[1], _loss_v[2], _loss_v[3]))
+                    print('%d. Video: %s Time: %.2fs  epoch: %d total %.3f %.3f %.3f' %
+                          (v_idx + 1, video.name, toc, epoch + 1, _loss_v[0], _loss_v[1], _loss_v[2]))
 
                     # save state dict
                     state_dict = {
