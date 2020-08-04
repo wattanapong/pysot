@@ -187,7 +187,11 @@ def stoa_track(idx, frame_counter, img, gt_bbox, tracker1, template_dir=None):
             img = cv2.imread(template_dir)
         tracker1.init(img, gt_bbox_)
         # pred_bboxes.append(1)
-        append = 1
+        if args.dataset in ['VOT2016', 'VOT2018', 'VOT2019']:
+            append = 1
+        else:
+            append = gt_bbox_
+
     elif idx > frame_counter:
 
         outputs = tracker1.track(img, idx=idx)
@@ -196,7 +200,7 @@ def stoa_track(idx, frame_counter, img, gt_bbox, tracker1, template_dir=None):
         append = outputs['bbox']
 
         overlap = vot_overlap(outputs['bbox'], gt_bbox, (img.shape[1], img.shape[0]))
-        if args.dataset != 'OTB100':
+        if args.dataset in ['VOT2016', 'VOT2018', 'VOT2019']:
             if overlap > 0:
                 # not lost
                 lost = False
@@ -280,6 +284,7 @@ def test(video, model_name, template_dir=None):
 
         tic = cv2.getTickCount()
         pred_bbox, _lost, frame_counter = stoa_track(idx, frame_counter, img, gt_bbox, tracker, template_dir)
+        pred_bboxes_adv.append(pred_bbox)
         toc += cv2.getTickCount() - tic
 
         if idx > 0:
@@ -296,7 +301,7 @@ def test(video, model_name, template_dir=None):
         out.write(img)
 
     # save results
-    if args.dataset == 'OTB100':
+    if args.dataset not in ['VOT2016', 'VOT2018', 'VOT2019']:
         model_path = os.path.join('results', args.dataset, model_name)
         if not os.path.isdir(model_path):
             os.makedirs(model_path)
