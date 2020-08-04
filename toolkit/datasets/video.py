@@ -6,6 +6,7 @@ import json
 
 from glob import glob
 
+
 class Video(object):
     def __init__(self, name, root, video_dir, init_rect, img_names,
             gt_rect, attr, load_img=False):

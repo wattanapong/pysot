@@ -5,9 +5,7 @@ import numpy as np
 import json
 
 from glob import glob
-from pysot.datasets.anchor_target import AnchorTarget
 from pysot.utils.bbox import get_min_max_bbox, center2corner, Center, get_axis_aligned_bbox
-from pysot.datasets.augmentation import Augmentation
 
 
 class VideoOneShot(object):
@@ -35,24 +33,6 @@ class VideoOneShot(object):
         self.config = config
         self.size = None
         self.center_pos = None
-
-        self.template_aug = Augmentation(
-            config.DATASET.TEMPLATE.SHIFT,
-            config.DATASET.TEMPLATE.SCALE,
-            config.DATASET.TEMPLATE.BLUR,
-            config.DATASET.TEMPLATE.FLIP,
-            config.DATASET.TEMPLATE.COLOR
-        )
-        self.search_aug = Augmentation(
-            config.DATASET.SEARCH.SHIFT,
-            config.DATASET.SEARCH.SCALE,
-            config.DATASET.SEARCH.BLUR,
-            config.DATASET.SEARCH.FLIP,
-            config.DATASET.SEARCH.COLOR
-        )
-
-        # create anchor target
-        self.anchor_target = AnchorTarget()
 
         if load_img:
             self.imgs = [cv2.imread(x) for x in self.img_names]

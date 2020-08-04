@@ -1,5 +1,7 @@
 from torch.utils.data import Dataset
 import numpy as np
+import os
+import json
 
 
 class MyDataset(Dataset):
@@ -18,3 +20,7 @@ class MyDataset(Dataset):
 
     def __len__(self):
         return len(self.img)
+
+    # def load_dataset(self, dataset_root, dataset):
+
+
