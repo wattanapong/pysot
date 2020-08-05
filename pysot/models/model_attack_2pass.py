@@ -66,11 +66,12 @@ class ModelAttacker(nn.Module):
         _, d, w, h = self.zf[0].shape
         batch = xf[0].shape[0]
 
-        if self.zf[0].shape[0] == 1 or self.zf[0].shape[0] != batch:
-            zf = []
+        if self.zf[0].shape[0] == 1:
             for i in range(0, 3):
-                zf.append(self.zf[i].contiguous().view(-1, 1).repeat(1, batch).view(d, w, h, -1).permute(3, 0, 1, 2))
-            self.zf = zf
+                self.zf[i] = self.zf[i].contiguous().view(-1, 1).repeat(1, batch).view(d, w, h, -1).permute(3, 0, 1, 2)
+        elif self.zf[0].shape[0] != batch:
+            for i in range(0, 3):
+                self.zf[i] = self.zf[i][:batch]
 
         cls, loc = tracker.rpn_head(self.zf, xf)
 
