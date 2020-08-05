@@ -55,7 +55,7 @@ class ModelAttacker(nn.Module):
     def forward(self, x, tracker, attack_region='template'):
 
         if attack_region == 'search':
-            x = self.add_noise(x, self.adv_x, self.epsilon)
+            x = self.add_noise(x, self.adv_x[x.shape[0], :, :, :], self.epsilon)
         xf = tracker.backbone(x)
         if cfg.MASK.MASK:
             self.xf = xf[:-1]
