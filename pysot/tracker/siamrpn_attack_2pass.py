@@ -225,13 +225,13 @@ class SiamRPNAttack2Pass(SiameseTracker):
             self.model.template(self.z_crop, epsilon=0)
             self.zf = torch.mean(torch.stack(self.model.zf), 0)
         else:
-            self.z_crop_adv = attacker.template(self.z_crop, self.model, epsilon)
+            self.z_crop_adv = attacker.template(self.z_crop, self.model)
             self.zf = torch.mean(torch.stack(attacker.zf), 0)
 
         if update:
             return s_z, box, pad
 
-    def train(self, img, attacker=None, bbox=None, epsilon=0, idx=0, batch=1, debug=False):
+    def train(self, img, attacker=None, bbox=None, attack_region='template', epsilon=0, idx=0, batch=1, debug=False):
         w_z = self.size[0] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
         h_z = self.size[1] + cfg.TRACK.CONTEXT_AMOUNT * np.sum(self.size)
 
@@ -244,7 +244,7 @@ class SiamRPNAttack2Pass(SiameseTracker):
         # self.z_crop_adv = attacker.template(self.z_crop, self.model, epsilon)
         # self.zfa = torch.mean(torch.stack(attacker.zf), 0)
 
-        outputs = attacker(self.x_crops.cuda(), self.model, iter)
+        outputs = attacker(self.x_crops.cuda(), self.model, attack_region)
 
         # score_softmax = self._convert_score(outputs['cls'])
         # pred_bbox = self._convert_bbox(outputs['loc'], self.anchors)
@@ -288,7 +288,8 @@ class SiamRPNAttack2Pass(SiameseTracker):
 
         return {
             'l1': l1,
-            'l2': l2
+            'l2': l2,
+            's_x': s_x
         }
 
     def track(self, img, attacker=None, epsilon=0, idx=0, iter=0, debug=False):

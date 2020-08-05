@@ -19,18 +19,17 @@ from pysot.models.neck import get_neck
 torch.manual_seed(1999)
 
 class ModelAttacker(nn.Module):
-    def __init__(self):
+    def __init__(self, batch, epsilon):
         super(ModelAttacker, self).__init__()
-
+        self.epsilon = epsilon
         self.adv_z = nn.Parameter(torch.rand([1, 3, 127, 127], requires_grad=True, dtype=torch.float))
-        self.adv_x = nn.Parameter(torch.rand([1, 3, 255, 255], requires_grad=True, dtype=torch.float))
-        self.template_average = None
+        self.adv_x = nn.Parameter(torch.rand([batch, 3, 255, 255], requires_grad=True, dtype=torch.float))
 
-    def perturb(self, img, epsilon):
+    def perturb(self, img):
         # x = (self.adv_z - self.adv.min()) / (self.adv.max() - self.adv.min())
         x = torch.clamp(self.adv_z, min=0, max=1)
         # pdb.set_trace()
-        x = img + epsilon * (2 * x - 1)
+        x = img + self.epsilon * (2 * x - 1)
         x[x != x] = img[x != x]
         x[x > 255] = 255
         x[x < 0] = 0
@@ -39,11 +38,11 @@ class ModelAttacker(nn.Module):
     def add_noise(self, img, noise, epsilon):
         x = torch.clamp(noise, min=0, max=1)
         x = torch.clamp(img + epsilon*(2*x-1), min=0, max=255)
+        x[x != x] = img[x != x]
         return x
 
-    def template(self, z, tracker, epsilon=0):
-        if epsilon != 0:
-            z = self.perturb(z, epsilon)
+    def template(self, z, tracker):
+        self.perturb(z)
 
         zf = tracker.backbone(z)
 
@@ -53,8 +52,10 @@ class ModelAttacker(nn.Module):
         self.zf = zf
         return z
 
-    def forward(self, x, tracker, iter=0):
+    def forward(self, x, tracker, attack_region='template'):
 
+        if attack_region == 'search':
+            x = self.add_noise(x, self.adv_x, self.epsilon)
         xf = tracker.backbone(x)
         if cfg.MASK.MASK:
             self.xf = xf[:-1]

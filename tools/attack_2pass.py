@@ -76,19 +76,30 @@ parser.add_argument('--debug', action='store_true',
 args = parser.parse_args()
 
 
-def save(img, imga, szx, boxx, pad, filename, save=False):
+def save(img, imga, szx, boxx, filename, shift, region='template', save=False):
     if save:
         szx = int(szx)
         imga2 = F.interpolate(imga, size=szx)
-        # boxx = (np.array(boxx) * szx / cfg.TRACK.EXEMPLAR_SIZE).astype(np.int)
 
         imga2 = cv2.UMat(imga2.data.cpu().numpy().squeeze().transpose([1, 2, 0])).get()
-        # cv2.rectangle(imga, (bboxa[0], bboxa[1]), (bboxa[2], bboxa[3]), (0, 0, 0), 3)
         boxx = np.array(boxx).astype(np.int)
-        L = int(boxx[0] + (boxx[2] + 1) / 2 - (imga2.shape[0] + 1) / 2) - 1
-        R = int(boxx[0] + (boxx[2] + 1) / 2 + (imga2.shape[0] + 1) / 2) - 1
-        T = int(boxx[1] + (boxx[3] + 1) / 2 - (imga2.shape[0] + 1) / 2) - 1
-        B = int(boxx[1] + (boxx[3] + 1) / 2 + (imga2.shape[0] + 1) / 2) - 1
+
+        # if region == 'template':
+        #     L = int(boxx[0] + (boxx[2] + 1) / 2 - (imga2.shape[0] + 1) / 2 - 1)
+        #     R = int(boxx[0] + (boxx[2] + 1) / 2 + (imga2.shape[0] + 1) / 2 - 1)
+        #     T = int(boxx[1] + (boxx[3] + 1) / 2 - (imga2.shape[0] + 1) / 2 - 1)
+        #     B = int(boxx[1] + (boxx[3] + 1) / 2 + (imga2.shape[0] + 1) / 2 - 1)
+        L = boxx[0] + (boxx[2] + 1)/2 - (imga2.shape[0] + 1) / 2 - 1
+        R = boxx[0] + (boxx[2] + 1)/2 + (imga2.shape[0] + 1) / 2 - 1
+        T = boxx[1] + (boxx[3] + 1)/2 - (imga2.shape[0] + 1) / 2 - 1
+        B = boxx[1] + (boxx[3] + 1)/2 + (imga2.shape[0] + 1) / 2 - 1
+        [L, R, T, B] = [int(x) if x * 2 % 2 == 0 else int(x + 0.5) for x in [L, R, T, B]]
+        if region == 'search' and shift is not None:
+            shift = np.array(shift, dtype=int)
+            L += shift[0]
+            R += shift[0]
+            T += shift[1]
+            B += shift[1]
 
         if boxx[2] % 2 == 1:
             L -= 1
@@ -220,10 +231,10 @@ def stoa_track(idx, frame_counter, img, gt_bbox, tracker1, template_dir=None):
     return append, lost_number, frame_counter
 
 
-def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, epoch):
+def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, attack_region, epoch):
     img = state['img']
-    cx, cy, w, h = gt_bbox
-    cx, cy = cx + w // 2, cy + h // 2
+    lx, ty, w, h = gt_bbox
+    cx, cy = lx + w // 2, ty + h // 2
 
     if idx == 0:
         state['zimg'] = img.copy()
@@ -231,12 +242,14 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, epoch):
         state['sz'], state['bbox'], state['pad'] = \
             tracker.init(state['zimg'], state['init_gt'], attacker=attacker, epsilon=args.epsilon, update=True)
     if idx > 0:
-        tracker.init(state['zimg'], state['init_gt'], attacker=attacker, epsilon=args.epsilon, update=False)
+        if attack_region == 'template':
+            tracker.init(state['zimg'], state['init_gt'], attacker=attacker, epsilon=args.epsilon, update=False)
         _outputs = tracker.train(img, attacker=attacker, bbox=torch.stack([cx, cy, w, h]), epsilon=args.epsilon,
-                                 batch=args.batch, idx=idx)
+                                     batch=args.batch, idx=idx, attack_region=attack_region)
 
         l1 = _outputs['l1']
         l2 = _outputs['l2']
+        state['s_x'] = _outputs['s_x']
         # l3 = _outputs['l3']
 
         # if idx == 1:
@@ -259,7 +272,7 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, epoch):
     return state, [total_loss.sum().item(), l1.sum().item(), l2.sum().item()] if idx > 0 else 0
 
 
-def test(video, model_name, template_dir=None):
+def test(video, v_idx, model_name, template_dir=None):
     # create model
     track_model = ModelBuilder()
     # load model
@@ -327,7 +340,7 @@ def test(video, model_name, template_dir=None):
 #     v_idx + 1, video.name, toc, idx / toc, lost_number_adv))
 
 
-def train(video, attack_region):
+def train(video, v_idx, attack_region):
     n_epochs = args.epochs
     epsilon = args.epsilon
     lr = args.lr
@@ -338,7 +351,7 @@ def train(video, attack_region):
     # build tracker
     tracker = build_tracker(track_model)
 
-    attacker = ModelAttacker().cuda().train()
+    attacker = ModelAttacker(args.batch, args.epsilon).cuda().train()
     # optimizer = optim.Adam(attacker.parameters(), lr=lr)
     optimizer = optim.SGD(attacker.parameters(), lr=lr, momentum=0.9)
 
@@ -362,19 +375,19 @@ def train(video, attack_region):
         attacker.load_state_dict(state['attacker'])
         optimizer.load_state_dict(state['optimizer'])
 
-    elif attack_region == 'search':
-        checkpoint_dir = os.path.join(args.savedir, args.dataset, 'checkpoint', 'template', video.name)
-        assert os.path.exists(
-            os.path.join(checkpoint_dir, 'checkpoint_100.pth')), ' missing ' + checkpoint_dir + ' in ' + video.name
-        state = torch.load(os.path.join(checkpoint_dir, 'checkpoint_100.pth'))
-        attacker.load_state_dict(state['attacker'])
-        optimizer.load_state_dict(state['optimizer'])
+    # elif attack_region == 'search':
+    #     checkpoint_dir = os.path.join(args.savedir, args.dataset, 'checkpoint', 'template', video.name)
+    #     assert os.path.exists(
+    #         os.path.join(checkpoint_dir, 'checkpoint_100.pth')), ' missing ' + checkpoint_dir + ' in ' + video.name
+    #     state = torch.load(os.path.join(checkpoint_dir, 'checkpoint_100.pth'))
+    #     attacker.load_state_dict(state['attacker'])
+    #     optimizer.load_state_dict(state['optimizer'])
 
     # generate cropping offset
     if attack_region == 'template':
-        tracker.generate_transition(64, len(video))
+        tracker.generate_transition(32, len(video))
     elif attack_region == 'search':
-        tracker.generate_transition(128, len(video))
+        tracker.generate_transition(64, len(video))
 
     # disable gradient
     if attack_region == 'template':
@@ -389,12 +402,20 @@ def train(video, attack_region):
     params = {'batch_size': args.batch,
               'shuffle': False,
               'num_workers': 6}
+
     for i in range(0, it - 1):
         for j in range(0, args.batch):
-            training_data.add([video[i * args.batch + j][0], video[i * args.batch + j][1]])
+            indx = i * args.batch + j+1
+            training_data.add([video[indx][0], video[indx][1]])
 
-    for j in range(0, num_frames - 1 - (it - 1) * args.batch):
-        training_data.add([video[(it - 1) * args.batch + j][0], video[(it - 1) * args.batch + j][1]])
+    for j in range(args.batch*(it-1), num_frames):
+        training_data.add([video[j + 1][0], video[j + 1][1]])
+
+    img_names = [x.replace(args.dataset_dir, args.fabricated_dir) for x in video.img_names]
+    del img_names[0]
+
+    pdb.set_trace()
+
     data_loader = torch.utils.data.DataLoader(training_data, **params)
 
     toc = 0
@@ -407,9 +428,9 @@ def train(video, attack_region):
         # initial frame
         img, gt_bbox = video[0]
         if attack_region == 'search':
-            img_name = video.img_names[0].replace(args.dataset_dir, args.fabricated_dir)
+            # img_name = video.img_names[0].replace(args.dataset_dir, args.fabricated_dir)
+            img_name = os.path.join(args.savedir, args.dataset, video.name, '000099.jpg')
             img = cv2.imread(img_name)
-            pdb.set_trace()
         gt_bbox, gt_bbox_ = gt_bbox_adaptor(gt_bbox)
 
         state = {
@@ -418,9 +439,11 @@ def train(video, attack_region):
             'video_name': video.name
         }
 
-        state, loss = adversarial_train(0, state, attacker, tracker, optimizer, gt_bbox_, epoch)
+        state, loss = adversarial_train(0, state, attacker, tracker, optimizer, gt_bbox_, attack_region, epoch)
         pbar = tqdm(enumerate(data_loader), position=0, leave=True)
         _loss = []
+        if attack_region == 'template':
+            adv_z = []
 
         for (_idx, (idx, (imgs, gt_bboxes))) in enumerate(pbar):
             if len(gt_bboxes[0]) == 4:
@@ -438,7 +461,7 @@ def train(video, attack_region):
             state['img'] = imgs
 
             state, loss = adversarial_train(args.batch * idx + 1, state, attacker, tracker, optimizer,
-                                            gt_bboxes_, epoch)
+                                            gt_bboxes_, attack_region, epoch)
 
             toc += cv2.getTickCount() - tic
 
@@ -447,24 +470,31 @@ def train(video, attack_region):
                 # pbar.set_postfix_str('%d. Video: %s epoch: %d total %.3f %.3f %.3f %.3f %.3f' %
                 #                      (v_idx + 1, video.name, epoch + 1, loss[0], loss[1], loss[2], loss[3],
                 #                       attacker.adv_z.mean()))
-                pbar.set_postfix_str('%d. Video: %s epoch: %d ' % (v_idx + 1, video.name, epoch + 1))
+                pbar.set_postfix_str('Video(%d): %s epoch: %d ' % (v_idx + 1, video.name, epoch + 1))
                 # pbar.set_postfix_str('%d. Video: %s epoch: %d total %.3f %.3f %.3f %.3f' %
                 #                      (v_idx + 1, video.name, epoch + 1, loss[0], loss[1], loss[2], loss[3]))
-                adv_z.append(attacker.adv_z.data.cpu())
+
+            if attack_region == 'search':
+
+                fabricated_dir = '/'.join(img_names[0].split('/')[:-1])
+                if not os.path.exists(fabricated_dir):
+                    os.makedirs(os.path.join(fabricated_dir))
+                for i in range(len(imgs)):
+                    x_adv = attacker.add_noise(tracker.x_crops[i], attacker.adv_x[i].data.cpu(), epsilon)
+                    x_adv = x_adv.unsqueeze(0)
+                    save(imgs[i].data.cpu().numpy(), x_adv, state['s_x'], gt_bboxes_[:, i],
+                         img_names[args.batch * idx + i], shift=tracker.shift[:, args.batch * idx + i + 1].numpy(),
+                         region=attack_region, save=True)
 
         toc /= cv2.getTickFrequency()
 
-        # attacker.template_average = sum(adv_z) / len(adv_z)
-        # attacker.template_average[attacker.template_average != attacker.template_average] = 0
-        # attacker.template_average = torch.clamp(attacker.template_average.data, min=0, max=1)
-
-        # z_adv = attacker.add_noise(tracker.z_crop, attacker.template_average.cuda(), epsilon)
-        z_adv = attacker.add_noise(tracker.z_crop, attacker.adv_z, epsilon)
-
-        if not os.path.exists(os.path.join(args.savedir, args.dataset, state['video_name'])):
-            os.mkdir(os.path.join(args.savedir, args.dataset, state['video_name']))
-        save(state['zimg'], z_adv, state['sz'], state['init_gt'], state['pad'],
-             os.path.join(args.savedir, args.dataset, state['video_name'], str(epoch).zfill(6) + '.jpg'), save=True)
+        if attack_region == 'template':
+            z_adv = attacker.add_noise(tracker.z_crop, attacker.adv_z, epsilon)
+            img_dir = os.path.join(args.savedir, args.dataset, state['video_name'])
+            if not os.path.exists(img_dir):
+                os.makedirs(os.path.join(img_dir))
+            save(state['zimg'], z_adv, state['sz'], state['init_gt'], attack_region,
+                 os.path.join(img_dir, str(epoch).zfill(6) + '.jpg'), shift=None, region=attack_region, save=True)
 
         _loss = np.asarray(_loss)
 
@@ -480,10 +510,10 @@ def train(video, attack_region):
             'epoch': epoch+1
         }
 
-        checkpoint_path = os.path.join(args.savedir, args.dataset, 'checkpoint', video.name)
+        checkpoint_path = os.path.join(args.savedir, args.dataset, 'checkpoint', attack_region, video.name)
         if not os.path.exists(checkpoint_path):
             os.makedirs(checkpoint_path)
-        torch.save(state_dict, os.path.join(checkpoint_path, 'checkpoint_'+str(epoch+1).zfill(3)+'.pth'))
+        torch.save(state_dict, os.path.join(checkpoint_path, 'checkpoint.pth'))
 
      # find_best_template()
 
@@ -542,8 +572,8 @@ def main():
             # # # # #  adversarial tracking  # # # # #
             ##########################################
             elif mode == 'train':
-                train(video, 'template')
-                train(video, 'search')
+                train(video, v_idx, 'template')
+                train(video, v_idx, 'search')
 
 if __name__ == '__main__':
     main()
