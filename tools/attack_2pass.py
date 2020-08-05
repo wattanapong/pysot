@@ -391,9 +391,9 @@ def train(video, v_idx, attack_region):
 
     # disable gradient
     if attack_region == 'template':
-        attacker.adv_x.requires_grad_ = False
+        attacker.adv_x.requires_grad = False
     elif attack_region == 'search':
-        attacker.adv_z.requires_grad_ = False
+        attacker.adv_z.requires_grad = False
 
     training_data = MyDataset()
     num_frames = len(video)
