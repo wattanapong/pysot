@@ -408,13 +408,11 @@ def train(video, v_idx, attack_region):
             indx = i * args.batch + j+1
             training_data.add([video[indx][0], video[indx][1]])
 
-    for j in range(args.batch*(it-1), num_frames):
-        training_data.add([video[j + 1][0], video[j + 1][1]])
+    for j in range(args.batch * (it - 1), num_frames):
+        training_data.add([video[j][0], video[j][1]])
 
     img_names = [x.replace(args.dataset_dir, args.fabricated_dir) for x in video.img_names]
     del img_names[0]
-
-    pdb.set_trace()
 
     data_loader = torch.utils.data.DataLoader(training_data, **params)
 
