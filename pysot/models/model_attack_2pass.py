@@ -71,7 +71,6 @@ class ModelAttacker(nn.Module):
             for i in range(0, 3):
                 zf.append(self.zf[i].contiguous().view(-1, 1).repeat(1, batch).view(d, w, h, -1).permute(3, 0, 1, 2))
             self.zf = zf
-        pdb.set_trace()
 
         cls, loc = tracker.rpn_head(self.zf, xf)
 
