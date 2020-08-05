@@ -55,6 +55,8 @@ parser.add_argument('--epsilon', default='0.1', type=float,
                     help='fgsm epsilon')
 parser.add_argument('--mode', default='train', type=str,
                     help='train or test mode')
+parser.add_argument('--attack_region', default='template', type=str,
+                    help='attack training region')
 parser.add_argument('--batch', default=16, type=int,
                     help='batch size')
 parser.add_argument('--lr', default='1e-4', type=float,
@@ -570,8 +572,7 @@ def main():
             # # # # #  adversarial tracking  # # # # #
             ##########################################
             elif mode == 'train':
-                train(video, v_idx, 'template')
-                train(video, v_idx, 'search')
+                train(video, v_idx, args.attack_region)
 
 if __name__ == '__main__':
     main()
