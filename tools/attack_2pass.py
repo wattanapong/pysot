@@ -189,7 +189,7 @@ def gt_bbox_adaptor(gt_bbox):
     return gt_bbox, gt_bbox_
 
 
-def stoa_track(idx, frame_counter, img, gt_bbox, tracker1, template_dir=None):
+def stoa_track(idx, frame_counter, img, gt_bbox, tracker1, template_dir=None, img_names=None):
     cx, cy, w, h = get_axis_aligned_bbox(np.array(gt_bbox))
     gt_bbox_ = [cx - (w - 1) / 2, cy - (h - 1) / 2, w, h]
     lost_number = 0
@@ -207,6 +207,8 @@ def stoa_track(idx, frame_counter, img, gt_bbox, tracker1, template_dir=None):
 
     elif idx > frame_counter:
 
+        if img_names is not None:
+            img = cv2.imread(img_names[idx])
         outputs = tracker1.track(img, idx=idx)
 
         # print('****************** state of the art tracking ******************')
@@ -274,7 +276,7 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, attack_
     return state, [total_loss.sum().item(), l1.sum().item(), l2.sum().item()] if idx > 0 else 0
 
 
-def test(video, v_idx, model_name, template_dir=None):
+def test(video, v_idx, model_name, template_dir=None, img_names=None):
     # create model
     track_model = ModelBuilder()
     # load model
@@ -298,7 +300,7 @@ def test(video, v_idx, model_name, template_dir=None):
         gt_bbox, gt_bbox_ = gt_bbox_adaptor(gt_bbox)
 
         tic = cv2.getTickCount()
-        pred_bbox, _lost, frame_counter = stoa_track(idx, frame_counter, img, gt_bbox, tracker, template_dir)
+        pred_bbox, _lost, frame_counter = stoa_track(idx, frame_counter, img, gt_bbox, tracker, template_dir, img_names)
         pred_bboxes_adv.append(pred_bbox)
         toc += cv2.getTickCount() - tic
 
@@ -544,7 +546,7 @@ def main():
         # restart tracking
         for v_idx, video in enumerate(dataset):
 
-            # img_names = [x.replace(args.dataset_dir, args.fabricated_dir) for x in video.img_names]
+            img_names = [x.replace(args.dataset_dir, args.fabricated_dir) for x in video.img_names]
             # fabricated_video(img_names, video)
 
             # myDataset =
@@ -566,7 +568,8 @@ def main():
             if mode == 'test':
                 model_name = '2pass_template'
                 template_dir = os.path.join(video_saved_dir, '000099.jpg')
-                test(video, model_name, template_dir)
+
+                test(video, v_idx, model_name, template_dir, img_names)
 
             ##########################################
             # # # # #  adversarial tracking  # # # # #
