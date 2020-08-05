@@ -446,6 +446,8 @@ def train(video, v_idx, attack_region):
             adv_z = []
 
         for (_idx, (idx, (imgs, gt_bboxes))) in enumerate(pbar):
+            if idx < 45:
+                continue
             if len(gt_bboxes[0]) == 4:
                 gt_bboxes = (gt_bboxes[:, 0], gt_bboxes[:, 1],
                            gt_bboxes[:, 0], gt_bboxes[:, 1] + gt_bboxes[:, 3] - 1,
