@@ -133,7 +133,9 @@ class SiamRPNAttack2Pass(SiameseTracker):
         # x, y, w, h = pred_box
         # wa = torch.tensor(self.size[0]).cuda() * (1 - lr) + wa * lr
         # ha = torch.tensor(self.size[1]).cuda() * (1 - lr) + ha * lr
-        c_loss = -1 * torch.sqrt((xa - self.shift[0, idx]) ** 2 + (ya - self.shift[1, idx]) ** 2)
+        batch = xa.shape[0]
+        c_loss = -1 * torch.sqrt(
+            (xa - self.shift[0, idx:batch + idx].cuda()) ** 2 + (ya - self.shift[1, idx:batch + idx].cuda()) ** 2)
         # shape_loss = -1 * torch.sum(torch.sqrt((wa - w)**2+(ha - h)**2))
         # return c_loss + shape_loss
         return c_loss
