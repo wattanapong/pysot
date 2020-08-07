@@ -28,17 +28,22 @@ class ModelAttacker(nn.Module):
     def perturb(self, img):
         # x = (self.adv_z - self.adv.min()) / (self.adv.max() - self.adv.min())
         x = torch.clamp(self.adv_z, min=0, max=1)
-        # pdb.set_trace()
         x = img + self.epsilon * (2 * x - 1)
         x[x != x] = img[x != x]
         x[x > 255] = 255
         x[x < 0] = 0
         return x
 
-    def add_noise(self, img, noise, epsilon):
+    def perturb_x(self, img):
+        x = torch.clamp(self.adv_x, min=0, max=1)
+        x = torch.clamp(img.cuda() + self.epsilon*(2*x-1), min=0, max=255)
+        # x[x != x] = img[x != x]
+        return x
+
+    def add_noise(self, img, noise):
         x = torch.clamp(noise, min=0, max=1)
-        x = torch.clamp(img + epsilon*(2*x-1), min=0, max=255)
-        x[x != x] = img[x != x]
+        x = torch.clamp(img.cuda() + self.epsilon*(2*x-1), min=0, max=255)
+        # x[x != x] = img[x != x]
         return x
 
     def template(self, z, tracker):
@@ -53,9 +58,6 @@ class ModelAttacker(nn.Module):
         return z
 
     def forward(self, x, tracker, attack_region='template'):
-
-        if attack_region == 'search':
-            x = self.add_noise(x, self.adv_x[:x.shape[0], :, :, :], self.epsilon)
         xf = tracker.backbone(x)
         if cfg.MASK.MASK:
             self.xf = xf[:-1]

@@ -134,7 +134,6 @@ def save(img, imga, szx, boxx, filename, shift, region='template', save=False):
             flag = True
 
         if flag:
-            # pdb.set_trace()
             imgn[bb1[0]:bb1[1], bb1[2]:bb1[3], :] = imga2[bb2[0]:bb2[1], bb2[2]:bb2[3], :]
         else:
             imgn[T:B - 1, L:R - 1, :] = imga2
@@ -262,9 +261,8 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, attack_
         #     total_loss = args.alpha * l1 + args.beta * l2 + args.gamma * l3
 
         total_loss = args.alpha * l1 + args.beta * l2
-
         optimizer.zero_grad()
-        total_loss.sum().backward()
+        total_loss.mean().backward()
         optimizer.step()
         # with torch.no_grad():
         #     attacker.adv_z[attacker.adv_z != attacker.adv_z] = 0
@@ -354,7 +352,7 @@ def train(video, v_idx, attack_region):
 
     # build tracker
     tracker = build_tracker(track_model)
-
+    # h, w, _ = video[0][0].shape
     attacker = ModelAttacker(args.batch, args.epsilon).cuda().train()
     # optimizer = optim.Adam(attacker.parameters(), lr=lr)
     optimizer = optim.SGD(attacker.parameters(), lr=lr, momentum=0.9)
@@ -389,15 +387,15 @@ def train(video, v_idx, attack_region):
 
     # generate cropping offset
     if attack_region == 'template':
-        tracker.generate_transition(32, len(video))
+        tracker.generate_transition(0, len(video))
     elif attack_region == 'search':
-        tracker.generate_transition(64, len(video))
+        tracker.generate_transition(0, len(video))
 
     # disable gradient
     if attack_region == 'template':
-        attacker.adv_x.requires_grad_ = False
+        attacker.adv_x.requires_grad = False
     elif attack_region == 'search':
-        attacker.adv_z.requires_grad_ = False
+        attacker.adv_z.requires_grad = False
 
     training_data = MyDataset()
     num_frames = len(video)
@@ -481,8 +479,9 @@ def train(video, v_idx, attack_region):
                 fabricated_dir = '/'.join(img_names[0].split('/')[:-1])
                 if not os.path.exists(fabricated_dir):
                     os.makedirs(os.path.join(fabricated_dir))
+
                 for i in range(len(imgs)):
-                    x_adv = attacker.add_noise(tracker.x_crops[i], attacker.adv_x[i].data.cpu(), epsilon)
+                    x_adv = attacker.add_noise(tracker.x_crops[i], attacker.adv_x[i])
                     x_adv = x_adv.unsqueeze(0)
                     save(imgs[i].data.cpu().numpy(), x_adv, state['s_x'], gt_bboxes_[:, i],
                          img_names[args.batch * idx + i], shift=tracker.shift[:, args.batch * idx + i + 1].numpy(),

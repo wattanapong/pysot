@@ -14,7 +14,7 @@ from pysot.models.loss import select_cross_entropy_loss, weight_l1_loss
 from pysot.models.backbone import get_backbone
 from pysot.models.head import get_rpn_head, get_mask_head, get_refine_head
 from pysot.models.neck import get_neck
-
+from pysot.utils.heatmap import plotheatmap, maprpn_id, maprpn
 torch.manual_seed(0)
 
 class ModelBuilder(nn.Module):
@@ -54,7 +54,6 @@ class ModelBuilder(nn.Module):
         return z
 
     def track(self, x, iter=0):
-
         xf = self.backbone(x)
         if cfg.MASK.MASK:
             self.xf = xf[:-1]
@@ -63,6 +62,15 @@ class ModelBuilder(nn.Module):
             xf = self.neck(xf)
 
         cls, loc = self.rpn_head(self.zf, xf)
+
+        # import cv2
+        # import numpy as np
+        # fn = '/media/wattanapongsu/4T/temp/x'+str(iter)+'.jpg'
+        # cv2.imwrite(fn, np.array(x.squeeze().permute(1, 2, 0).data.cpu(), int))
+        # maprpn(cls, 'rpn', m=-2)
+        # import pdb
+        # pdb.set_trace()
+
         if cfg.MASK.MASK:
             mask, self.mask_corr_feature = self.mask_head(self.zf, xf)
         return {
