@@ -233,7 +233,7 @@ class SiamRPNAttack2Pass(SiameseTracker):
             self.model.template(self.z_crop, epsilon=0)
             self.zf = torch.mean(torch.stack(self.model.zf), 0)
         else:
-            self.z_crop_adv = attacker.template(self.z_crop, self.model)
+            self.z_crop_adv = attacker.template(self.z_crop, self.model, epsilon)
             self.zf = torch.mean(torch.stack(attacker.zf), 0)
 
         if update:

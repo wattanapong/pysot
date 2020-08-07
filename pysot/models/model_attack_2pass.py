@@ -47,8 +47,9 @@ class ModelAttacker(nn.Module):
         # x[x != x] = img[x != x]
         return x
 
-    def template(self, z, tracker):
-        self.perturb(z)
+    def template(self, z, tracker, epsilon):
+        if epsilon > 0:
+            self.perturb(z)
 
         zf = tracker.backbone(z)
 
