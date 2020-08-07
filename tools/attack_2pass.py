@@ -262,6 +262,9 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, attack_
             # disable gradient
             attacker.adv_z.requires_grad = False
 
+            state['sz'], state['bbox'], state['pad'] = \
+                tracker.init(state['zimg'], state['init_gt'], attacker=attacker, epsilon=epsilon, update=False)
+
             pbar = tqdm(range(args.sub_epochs))
             for i in pbar:
                 _outputs = tracker.train(img, attacker=attacker, bbox=torch.stack([cx, cy, w, h]), epsilon=args.epsilon,
