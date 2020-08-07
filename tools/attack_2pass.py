@@ -246,14 +246,22 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, attack_
             img = cv2.imread(template_dir)
         state['zimg'] = img.copy()
         state['init_gt'] = gt_bbox
+        epsilon = args.epsilon if attack_region == 'template' else 0
         state['sz'], state['bbox'], state['pad'] = \
-            tracker.init(state['zimg'], state['init_gt'], attacker=attacker, epsilon=args.epsilon, update=True)
+            tracker.init(state['zimg'], state['init_gt'], attacker=attacker, epsilon=epsilon, update=True)
     if idx > 0:
         if attack_region == 'template':
             tracker.init(state['zimg'], state['init_gt'], attacker=attacker, epsilon=args.epsilon, update=False)
             _outputs = tracker.train(img, attacker=attacker, bbox=torch.stack([cx, cy, w, h]), epsilon=args.epsilon,
                                      batch=args.batch, idx=idx, attack_region=attack_region)
         else:
+            batch = img.shape[0]
+            attacker = ModelAttacker(batch, args.epsilon).cuda().train()
+            optimizer = optim.Adam(attacker.parameters(), lr=args.lr)
+
+            # disable gradient
+            attacker.adv_z.requires_grad = False
+
             pbar = tqdm(range(args.sub_epochs))
             for i in pbar:
                 _outputs = tracker.train(img, attacker=attacker, bbox=torch.stack([cx, cy, w, h]), epsilon=args.epsilon,
