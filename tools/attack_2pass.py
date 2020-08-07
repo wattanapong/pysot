@@ -236,12 +236,14 @@ def stoa_track(idx, frame_counter, img, gt_bbox, tracker1, template_dir=None, im
     return append, lost_number, frame_counter
 
 
-def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, attack_region, epoch):
+def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, attack_region, template_dir=None, epoch=0):
     img = state['img']
     lx, ty, w, h = gt_bbox
     cx, cy = lx + w // 2, ty + h // 2
 
     if idx == 0:
+        if template_dir is not None:
+            img = cv2.imread(template_dir)
         state['zimg'] = img.copy()
         state['init_gt'] = gt_bbox
         state['sz'], state['bbox'], state['pad'] = \
@@ -252,6 +254,12 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, attack_
             _outputs = tracker.train(img, attacker=attacker, bbox=torch.stack([cx, cy, w, h]), epsilon=args.epsilon,
                                      batch=args.batch, idx=idx, attack_region=attack_region)
         else:
+            batch = img.shape[0]
+            attacker = ModelAttacker(batch, args.epsilon).cuda().train()
+            optimizer = optim.Adam(attacker.parameters(), lr=args.lr)
+
+            tracker.init(state['zimg'], state['init_gt'], attacker=attacker, epsilon=args.epsilon, update=False)
+
             pbar = tqdm(range(args.sub_epochs))
             for i in pbar:
                 _outputs = tracker.train(img, attacker=attacker, bbox=torch.stack([cx, cy, w, h]), epsilon=args.epsilon,
@@ -263,7 +271,7 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, attack_
                 total_loss = args.alpha * l1 + args.beta * l2
 
                 if i == 0:
-                    print('\nfirst loss: %.3f l1: %.3f l2: %.3f\n' % (
+                    print('\n\n\t\t\t\tfirst loss: %.3f l1: %.3f l2: %.3f' % (
                         total_loss.mean().item(), l1.mean().item(), l2.mean().item()))
                 else:
                     pbar.set_postfix_str('sub epoch: %d total loss: %.3f l1: %.3f l2: %.3f' % (
@@ -350,7 +358,7 @@ def test(video, v_idx, model_name, template_dir=None, img_names=None):
 #     v_idx + 1, video.name, toc, idx / toc, lost_number_adv))
 
 
-def train(video, v_idx, attack_region):
+def train(video, v_idx, attack_region, template_dir):
     n_epochs = args.epochs
     epsilon = args.epsilon
     lr = args.lr
@@ -447,7 +455,7 @@ def train(video, v_idx, attack_region):
             'video_name': video.name
         }
 
-        state, loss = adversarial_train(0, state, attacker, tracker, optimizer, gt_bbox_, attack_region, epoch)
+        state, loss = adversarial_train(0, state, attacker, tracker, optimizer, gt_bbox_, attack_region, template_dir, epoch)
         pbar = tqdm(enumerate(data_loader), position=0, leave=True)
         _loss = []
         if attack_region == 'template':
@@ -479,7 +487,7 @@ def train(video, v_idx, attack_region):
             #     attacker.adv_z.requires_grad = False
 
             state, loss = adversarial_train(args.batch * idx + 1, state, attacker, tracker, optimizer,
-                                            gt_bboxes_, attack_region, epoch)
+                                            gt_bboxes_, attack_region, template_dir, epoch)
 
             toc += cv2.getTickCount() - tic
 
@@ -579,20 +587,20 @@ def main():
             elif v_idx < args.video_idx and args.debug:
                 continue
 
+            template_dir = os.path.join(video_saved_dir, '000099.jpg')
+
             ##########################################
             # # #  for state of the art tracking # # #
             ##########################################
             if mode == 'test':
                 model_name = '2pass_template'
-                template_dir = os.path.join(video_saved_dir, '000099.jpg')
-
                 test(video, v_idx, model_name, template_dir, img_names)
 
             ##########################################
             # # # # #  adversarial tracking  # # # # #
             ##########################################
             elif mode == 'train':
-                train(video, v_idx, args.attack_region)
+                train(video, v_idx, args.attack_region, template_dir)
 
 if __name__ == '__main__':
     main()
