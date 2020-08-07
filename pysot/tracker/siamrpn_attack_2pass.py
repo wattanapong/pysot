@@ -138,9 +138,9 @@ class SiamRPNAttack2Pass(SiameseTracker):
         c_loss = -1 * torch.sqrt(xa ** 2 + ya ** 2)
         p_zero = ((xa - wa / 2 > 255 / 4) + (xa + wa / 2 < -255 / 4)) * (
                     (ya - ha / 2 > 255 / 4) + (ya + ha / 2 < -255 / 4))
-        c_loss[p_zero] = 0
-        if p_zero.sum() > 0:
-            print('stop loss l1: ', idx, c_loss.item())
+        # c_loss[p_zero] = 0
+        # if p_zero.sum() > 0:
+        #     print('stop loss l1: ', idx, c_loss.item())
         # c_loss = -1 * torch.sqrt(
         #     (xa - self.shift[0, idx:batch + idx].cuda()) ** 2 + (ya - self.shift[1, idx:batch + idx].cuda()) ** 2)
         # shape_loss = -1 * torch.sum(torch.sqrt((wa - w)**2+(ha - h)**2))
