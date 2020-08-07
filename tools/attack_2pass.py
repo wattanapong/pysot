@@ -255,14 +255,14 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, attack_
             _outputs = tracker.train(img, attacker=attacker, bbox=torch.stack([cx, cy, w, h]), epsilon=args.epsilon,
                                      batch=args.batch, idx=idx, attack_region=attack_region)
         else:
-            # batch = img.shape[0]
-            # attacker = ModelAttacker(batch, args.epsilon).cuda().train()
-            # optimizer = optim.Adam(attacker.parameters(), lr=args.lr)
-            #
-            # # disable gradient
-            # attacker.adv_z.requires_grad = False
-            #
-            # tracker.init(state['zimg'], state['init_gt'], attacker=attacker, epsilon=0, update=False)
+            batch = img.shape[0]
+            attacker = ModelAttacker(batch, args.epsilon).cuda().train()
+            optimizer = optim.Adam(attacker.parameters(), lr=args.lr)
+
+            # disable gradient
+            attacker.adv_z.requires_grad = False
+
+            tracker.init(state['zimg'], state['init_gt'], attacker=attacker, epsilon=0, update=True)
 
             pbar = tqdm(range(args.sub_epochs))
             for i in pbar:
