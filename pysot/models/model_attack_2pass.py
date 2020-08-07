@@ -35,8 +35,9 @@ class ModelAttacker(nn.Module):
         return x
 
     def perturb_x(self, img):
+        batch = img.shape[0]
         x = torch.clamp(self.adv_x, min=0, max=1)
-        x = torch.clamp(img.cuda() + self.epsilon*(2*x-1), min=0, max=255)
+        x = torch.clamp(img.cuda() + self.epsilon*(2*x[:batch]-1), min=0, max=255)
         # x[x != x] = img[x != x]
         return x
 
