@@ -67,8 +67,10 @@ parser.add_argument('--beta', default='0.3', type=float,
                     help='beta')
 parser.add_argument('--gamma', default='0.1', type=float,
                     help='gamma')
-parser.add_argument('--epochs', default='2 0', type=int,
+parser.add_argument('--epochs', default='1', type=int,
                     help='number of epochs')
+parser.add_argument('--sub_epochs', default='20', type=int,
+                    help='number of sub epochs')
 parser.add_argument('--video_idx', default=0, type=int,
                     help='start video from idx')
 parser.add_argument('--vis', action='store_true',
@@ -247,30 +249,36 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, attack_
     if idx > 0:
         if attack_region == 'template':
             tracker.init(state['zimg'], state['init_gt'], attacker=attacker, epsilon=args.epsilon, update=False)
-        _outputs = tracker.train(img, attacker=attacker, bbox=torch.stack([cx, cy, w, h]), epsilon=args.epsilon,
+            _outputs = tracker.train(img, attacker=attacker, bbox=torch.stack([cx, cy, w, h]), epsilon=args.epsilon,
                                      batch=args.batch, idx=idx, attack_region=attack_region)
+        else:
+            pbar = tqdm(range(args.sub_epochs))
+            for i in pbar:
+                _outputs = tracker.train(img, attacker=attacker, bbox=torch.stack([cx, cy, w, h]), epsilon=args.epsilon,
+                                         batch=args.batch, idx=idx, attack_region=attack_region)
 
-        l1 = _outputs['l1']
-        l2 = _outputs['l2']
-        state['s_x'] = _outputs['s_x']
-        # l3 = _outputs['l3']
+                l1 = _outputs['l1']
+                l2 = _outputs['l2']
+                state['s_x'] = _outputs['s_x']
+                total_loss = args.alpha * l1 + args.beta * l2
 
-        # if idx == 1:
-        #     total_loss = args.alpha * l1 + args.beta * l2
-        # else:
-        #     total_loss = args.alpha * l1 + args.beta * l2 + args.gamma * l3
+                if i == 0:
+                    print('\nfirst loss: %.3f l1: %.3f l2: %.3f\n' % (
+                        total_loss.mean().item(), l1.mean().item(), l2.mean().item()))
+                else:
+                    pbar.set_postfix_str('sub epoch: %d total loss: %.3f l1: %.3f l2: %.3f' % (
+                        i + 1, total_loss.mean().item(), l1.mean().item(), l2.mean().item()))
+                # l3 = _outputs['l3']
 
-        total_loss = args.alpha * l1 + args.beta * l2
-        optimizer.zero_grad()
-        total_loss.mean().backward()
-        optimizer.step()
-        # with torch.no_grad():
-        #     attacker.adv_z[attacker.adv_z != attacker.adv_z] = 0
+                # if idx == 1:
+                #     total_loss = args.alpha * l1 + args.beta * l2
+                # else:
+                #     total_loss = args.alpha * l1 + args.beta * l2 + args.gamma * l3
 
-        # save(state['zimg'], attacker.perturb(tracker.z_crop, args.epsilon), state['sz'], state['init_gt'], state['pad'],
-        #     os.path.join(args.savedir, state['video_name'], str(idx).zfill(6) + '.jpg'), save=True)
+                optimizer.zero_grad()
+                total_loss.mean().backward()
+                optimizer.step()
 
-    # return state, [total_loss.item(), l1.item(), l2.item(), l3.item() if epoch > 0 else 0] if idx > 0 else 0
     return state, [total_loss.sum().item(), l1.sum().item(), l2.sum().item()] if idx > 0 else 0
 
 
@@ -354,8 +362,8 @@ def train(video, v_idx, attack_region):
     tracker = build_tracker(track_model)
     # h, w, _ = video[0][0].shape
     attacker = ModelAttacker(args.batch, args.epsilon).cuda().train()
-    # optimizer = optim.Adam(attacker.parameters(), lr=lr)
-    optimizer = optim.SGD(attacker.parameters(), lr=lr, momentum=0.9)
+    optimizer = optim.Adam(attacker.parameters(), lr=lr)
+    # optimizer = optim.SGD(attacker.parameters(), lr=lr, momentum=0.9)
 
     for name, param in tracker.model.named_parameters():
         param.requires_grad_(False)
@@ -459,6 +467,16 @@ def train(video, v_idx, attack_region):
             tic = cv2.getTickCount()
 
             state['img'] = imgs
+
+            if idx > 1:
+                attacker = ModelAttacker(args.batch, args.epsilon).cuda().train()
+                optimizer = optim.Adam(attacker.parameters(), lr=lr)
+
+                # disable gradient
+                if attack_region == 'template':
+                    attacker.adv_x.requires_grad = False
+                elif attack_region == 'search':
+                    attacker.adv_z.requires_grad = False
 
             state, loss = adversarial_train(args.batch * idx + 1, state, attacker, tracker, optimizer,
                                             gt_bboxes_, attack_region, epoch)
