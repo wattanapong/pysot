@@ -257,7 +257,7 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, attack_
             batch = img.shape[0]
             attacker = ModelAttacker(batch, args.epsilon).cuda().train()
             optimizer = optim.Adam(attacker.parameters(), lr=args.lr)
-            pdb.set_trace()
+            
             # disable gradient
             attacker.adv_z.requires_grad = False
 
