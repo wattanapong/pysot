@@ -468,15 +468,15 @@ def train(video, v_idx, attack_region):
 
             state['img'] = imgs
 
-            if idx > 1:
-                attacker = ModelAttacker(args.batch, args.epsilon).cuda().train()
-                optimizer = optim.Adam(attacker.parameters(), lr=lr)
 
-                # disable gradient
-                if attack_region == 'template':
-                    attacker.adv_x.requires_grad = False
-                elif attack_region == 'search':
-                    attacker.adv_z.requires_grad = False
+            # attacker = ModelAttacker(args.batch, args.epsilon).cuda().train()
+            # optimizer = optim.Adam(attacker.parameters(), lr=lr)
+            #
+            # # disable gradient
+            # if attack_region == 'template':
+            #     attacker.adv_x.requires_grad = False
+            # elif attack_region == 'search':
+            #     attacker.adv_z.requires_grad = False
 
             state, loss = adversarial_train(args.batch * idx + 1, state, attacker, tracker, optimizer,
                                             gt_bboxes_, attack_region, epoch)
