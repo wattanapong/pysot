@@ -22,8 +22,8 @@ class ModelAttacker(nn.Module):
     def __init__(self, batch, epsilon):
         super(ModelAttacker, self).__init__()
         self.epsilon = epsilon
-        self.adv_z = nn.Parameter(torch.rand([1, 3, 127, 127], requires_grad=True, dtype=torch.float))
-        self.adv_x = nn.Parameter(torch.rand([batch, 3, 255, 255], requires_grad=True, dtype=torch.float))
+        self.adv_z = nn.Parameter(torch.zeros([1, 3, 127, 127], requires_grad=True, dtype=torch.float))
+        self.adv_x = nn.Parameter(torch.zeros([batch, 3, 255, 255], requires_grad=True, dtype=torch.float))
 
     def perturb(self, img):
         # x = (self.adv_z - self.adv.min()) / (self.adv.max() - self.adv.min())
