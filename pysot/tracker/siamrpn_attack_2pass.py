@@ -134,7 +134,7 @@ class SiamRPNAttack2Pass(SiameseTracker):
         # x, y, w, h = bbox.cuda()
         wa = torch.tensor(self.size[0]).cuda() * (1 - lr) + wa * lr
         ha = torch.tensor(self.size[1]).cuda() * (1 - lr) + ha * lr
-        # batch = xa.shape[0]
+        batch = xa.shape[0]
         c_loss = -1 * (torch.abs(xa) + torch.abs(ya))
         # p_zero = ((xa - wa / 2 > 255 / 4) + (xa + wa / 2 < -255 / 4)) * (
         #             (ya - ha / 2 > 255 / 4) + (ya + ha / 2 < -255 / 4))
@@ -143,9 +143,9 @@ class SiamRPNAttack2Pass(SiameseTracker):
         #     print('stop loss l1: ', idx, c_loss.item())
         # c_loss = -1 * torch.sqrt(
         #     (xa - self.shift[0, idx:batch + idx].cuda()) ** 2 + (ya - self.shift[1, idx:batch + idx].cuda()) ** 2)
-        # shape_loss = -1 * torch.sum(torch.sqrt((wa - w)**2+(ha - h)**2))
-        # return c_loss + shape_loss
-        return c_loss
+        shape_loss = -1*torch.sum(wa + ha)
+        return c_loss + shape_loss
+        # return c_loss
 
     # min confident score
     def l2_loss(self, score, sort_idx, th):
@@ -289,7 +289,7 @@ class SiamRPNAttack2Pass(SiameseTracker):
         lr = torch.zeros(_batch).cuda()
         pred_bbox_a = torch.zeros(4, _batch).cuda()
         for i in range(0, _batch):
-            lr[i] = (penalty[sort_idx[i, 0], i] * score_softmax[i, sort_idx[i, 0]] * cfg.TRACK.LR).data
+            lr[i] = (penalty[sort_idx[i, 0], i] * score_softmax[i, sort_idx[i, 0]] * cfg.TRACK.LR)
             pred_bbox_a[:, i] = pred_bbox[:, sort_idx[i, 0], i] / scale_z
 
         l1 = self.l1_loss(pred_bbox_a, bbox, lr, idx)
