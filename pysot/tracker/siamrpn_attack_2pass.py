@@ -143,7 +143,7 @@ class SiamRPNAttack2Pass(SiameseTracker):
         #     print('stop loss l1: ', idx, c_loss.item())
         # c_loss = -1 * torch.sqrt(
         #     (xa - self.shift[0, idx:batch + idx].cuda()) ** 2 + (ya - self.shift[1, idx:batch + idx].cuda()) ** 2)
-        shape_loss = -1*torch.sum(wa + ha)
+        shape_loss = torch.sum(wa + ha)
         return c_loss + shape_loss
         # return c_loss
 
