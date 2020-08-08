@@ -127,28 +127,20 @@ class SiamRPNAttack2Pass(SiameseTracker):
         return bbox
 
     # min overlap
-    def l1_loss(self, pred_box_a, bbox, lr, idx):
-        a = 0.3
-        b = 0.7
-        xa, ya, wa, ha = pred_box_a
-        # x, y, w, h = bbox.cuda()
+    def l1_loss(self, pred_box_a):
+        xa, ya, _, _ = pred_box_a
+        c_loss = -1 * (torch.abs(xa) + torch.abs(ya))
+        return c_loss
+
+    def l2_loss(self, pred_box_a, lr, size):
+        _, _, wa, ha = pred_box_a
         wa = torch.tensor(self.size[0]).cuda() * (1 - lr) + wa * lr
         ha = torch.tensor(self.size[1]).cuda() * (1 - lr) + ha * lr
-        batch = xa.shape[0]
-        c_loss = -1 * (torch.abs(xa) + torch.abs(ya))
-        # p_zero = ((xa - wa / 2 > 255 / 4) + (xa + wa / 2 < -255 / 4)) * (
-        #             (ya - ha / 2 > 255 / 4) + (ya + ha / 2 < -255 / 4))
-        # c_loss[p_zero] = 0
-        # if p_zero.sum() > 0:
-        #     print('stop loss l1: ', idx, c_loss.item())
-        # c_loss = -1 * torch.sqrt(
-        #     (xa - self.shift[0, idx:batch + idx].cuda()) ** 2 + (ya - self.shift[1, idx:batch + idx].cuda()) ** 2)
-        shape_loss = torch.sum(wa + ha)
-        return c_loss + shape_loss
-        # return c_loss
+        shape_loss = torch.sum(wa + ha) / size
+        return shape_loss
 
     # min confident score
-    def l2_loss(self, score, sort_idx, th):
+    def l3_loss(self, score, sort_idx, th):
         batch = sort_idx.shape[0]
         first_order = torch.zeros(batch).cuda()
         second_order = torch.zeros(batch).cuda()
@@ -161,11 +153,6 @@ class SiamRPNAttack2Pass(SiameseTracker):
     # def l3_loss(self, z_crop, z_crop_a):
     #     z_energy = torch.norm(z_crop.cuda() - z_crop_a)
     #     return z_energy
-
-    def l3_loss(self, adv_z):
-        # average 3 channel colors
-        z_energy = torch.sum(adv_z ** 2) / 3
-        return z_energy
 
     def crop(self, img, bbox=None, im_name=None):
         # calculate channel average
@@ -292,14 +279,14 @@ class SiamRPNAttack2Pass(SiameseTracker):
             lr[i] = (penalty[sort_idx[i, 0], i] * score_softmax[i, sort_idx[i, 0]] * cfg.TRACK.LR)
             pred_bbox_a[:, i] = pred_bbox[:, sort_idx[i, 0], i] / scale_z
 
-        l1 = self.l1_loss(pred_bbox_a, bbox, lr, idx)
-        l2 = self.l2_loss(score_softmax, sort_idx, 50)
-
-        # l3 = self.l3_loss(attacker.adv_z)
+        l1 = self.l1_loss(pred_bbox_a, round(s_x))
+        l2 = self.l2_loss(pred_bbox_a, lr, round(s_x))
+        l3 = self.l3_loss(score_softmax, sort_idx, 50)
 
         return {
             'l1': l1,
             'l2': l2,
+            'l3': l3,
             's_x': s_x
         }
 

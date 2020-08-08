@@ -279,15 +279,16 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, attack_
 
                 l1 = _outputs['l1']
                 l2 = _outputs['l2']
+                l3 = _outputs['l3']
                 state['s_x'] = _outputs['s_x']
-                total_loss = args.alpha * l1 + args.beta * l2
+                total_loss = args.alpha * l1 + args.beta * l2 + args.gamma * l3
 
                 if i == 0:
-                    print('\n\n\t\t\t\tfirst loss: %.3f l1: %.3f l2: %.3f' % (
-                        total_loss.mean().item(), l1.mean().item(), l2.mean().item()))
+                    print('\n\n\t\t\t\tfirst loss: %.3f l1: %.3f l2: %.3f l3: %.3f' % (
+                        total_loss.mean().item(), l1.mean().item(), l2.mean().item(), l3.mean().item()))
                 else:
-                    pbar.set_postfix_str('sub epoch: %d total loss: %.3f l1: %.3f l2: %.3f' % (
-                        i + 1, total_loss.mean().item(), l1.mean().item(), l2.mean().item()))
+                    pbar.set_postfix_str('sub epoch: %d total loss: %.3f l1: %.3f l2: %.3f l3: %.3f' % (
+                        i + 1, total_loss.mean().item(), l1.mean().item(), l2.mean().item(), l3.mean().item()))
                 # l3 = _outputs['l3']
 
                 # if idx == 1:
@@ -299,7 +300,7 @@ def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, attack_
                 total_loss.mean().backward()
                 optimizer.step()
 
-    return state, [total_loss.sum().item(), l1.sum().item(), l2.sum().item()] if idx > 0 else 0
+    return state, [total_loss.sum().item(), l1.sum().item(), l2.sum().item(), l3.mean().item()] if idx > 0 else 0
 
 
 def test(video, v_idx, model_name, template_dir=None, img_names=None):
@@ -493,27 +494,28 @@ def train(video, v_idx, attack_region, template_dir):
 
             toc += cv2.getTickCount() - tic
 
-            if idx > 0:
-                _loss.append(loss)
-                # pbar.set_postfix_str('%d. Video: %s epoch: %d total %.3f %.3f %.3f %.3f %.3f' %
-                #                      (v_idx + 1, video.name, epoch + 1, loss[0], loss[1], loss[2], loss[3],
-                #                       attacker.adv_z.mean()))
-                pbar.set_postfix_str('Video(%d): %s epoch: %d ' % (v_idx + 1, video.name, epoch + 1))
-                # pbar.set_postfix_str('%d. Video: %s epoch: %d total %.3f %.3f %.3f %.3f' %
-                #                      (v_idx + 1, video.name, epoch + 1, loss[0], loss[1], loss[2], loss[3]))
+            if idx < 60:
+                if idx > 0:
+                    _loss.append(loss)
+                    # pbar.set_postfix_str('%d. Video: %s epoch: %d total %.3f %.3f %.3f %.3f %.3f' %
+                    #                      (v_idx + 1, video.name, epoch + 1, loss[0], loss[1], loss[2], loss[3],
+                    #                       attacker.adv_z.mean()))
+                    pbar.set_postfix_str('Video(%d): %s epoch: %d ' % (v_idx + 1, video.name, epoch + 1))
+                    # pbar.set_postfix_str('%d. Video: %s epoch: %d total %.3f %.3f %.3f %.3f' %
+                    #                      (v_idx + 1, video.name, epoch + 1, loss[0], loss[1], loss[2], loss[3]))
 
-            if attack_region == 'search':
+                if attack_region == 'search':
 
-                fabricated_dir = '/'.join(img_names[0].split('/')[:-1])
-                if not os.path.exists(fabricated_dir):
-                    os.makedirs(os.path.join(fabricated_dir))
+                    fabricated_dir = '/'.join(img_names[0].split('/')[:-1])
+                    if not os.path.exists(fabricated_dir):
+                        os.makedirs(os.path.join(fabricated_dir))
 
-                for i in range(len(imgs)):
-                    x_adv = attacker.add_noise(tracker.x_crops[i], attacker.adv_x[i])
-                    x_adv = x_adv.unsqueeze(0)
-                    save(imgs[i].data.cpu().numpy(), x_adv, state['s_x'], gt_bboxes_[:, i],
-                         img_names[args.batch * idx + i], shift=tracker.shift[:, args.batch * idx + i + 1].numpy(),
-                         region=attack_region, save=True)
+                    for i in range(len(imgs)):
+                        x_adv = attacker.add_noise(tracker.x_crops[i], attacker.adv_x[i])
+                        x_adv = x_adv.unsqueeze(0)
+                        save(imgs[i].data.cpu().numpy(), x_adv, state['s_x'], gt_bboxes_[:, i],
+                             img_names[args.batch * idx + i], shift=tracker.shift[:, args.batch * idx + i + 1].numpy(),
+                             region=attack_region, save=True)
 
         toc /= cv2.getTickFrequency()
 
