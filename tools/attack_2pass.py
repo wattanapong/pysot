@@ -93,10 +93,15 @@ def save(img, imga, szx, boxx, filename, shift, region='template', save=False):
         #     R = int(boxx[0] + (boxx[2] + 1) / 2 + (imga2.shape[0] + 1) / 2 - 1)
         #     T = int(boxx[1] + (boxx[3] + 1) / 2 - (imga2.shape[0] + 1) / 2 - 1)
         #     B = int(boxx[1] + (boxx[3] + 1) / 2 + (imga2.shape[0] + 1) / 2 - 1)
-        L = boxx[0] + (boxx[2] + 1)/2 - (imga2.shape[0] + 1) / 2 - 1
-        R = boxx[0] + (boxx[2] + 1)/2 + (imga2.shape[0] + 1) / 2 - 1
-        T = boxx[1] + (boxx[3] + 1)/2 - (imga2.shape[0] + 1) / 2 - 1
-        B = boxx[1] + (boxx[3] + 1)/2 + (imga2.shape[0] + 1) / 2 - 1
+
+        # L = boxx[0] + (boxx[2] + 1)/2 - (imga2.shape[0] + 1) / 2 - 1
+        # R = boxx[0] + (boxx[2] + 1)/2 + (imga2.shape[0] + 1) / 2 - 1
+        # T = boxx[1] + (boxx[3] + 1)/2 - (imga2.shape[0] + 1) / 2 - 1
+        # B = boxx[1] + (boxx[3] + 1)/2 + (imga2.shape[0] + 1) / 2 - 1
+        L = boxx[0] - (imga2.shape[0] + 1) / 2 - 1
+        R = boxx[0] + (imga2.shape[0] + 1) / 2 - 1
+        T = boxx[1] - (imga2.shape[0] + 1) / 2 - 1
+        B = boxx[1] + (imga2.shape[0] + 1) / 2 - 1
         [L, R, T, B] = [int(x) if x * 2 % 2 == 0 else int(x + 0.5) for x in [L, R, T, B]]
         if region == 'search' and shift is not None:
             shift = np.array(shift, dtype=int)
@@ -238,8 +243,11 @@ def stoa_track(idx, frame_counter, img, gt_bbox, tracker1, template_dir=None, im
 
 def adversarial_train(idx, state, attacker, tracker, optimizer, gt_bbox, attack_region, template_dir=None, epoch=0):
     img = state['img']
-    lx, ty, w, h = gt_bbox
-    cx, cy = lx + w // 2, ty + h // 2
+    if idx == 0:
+        lx, ty, w, h = gt_bbox
+        cx, cy = lx + w // 2, ty + h // 2
+    else:
+        cx, cy, w, h = gt_bbox
 
     if idx == 0:
         if template_dir is not None:
@@ -479,16 +487,6 @@ def train(video, v_idx, attack_region, template_dir):
             tic = cv2.getTickCount()
 
             state['img'] = imgs
-
-
-            # attacker = ModelAttacker(args.batch, args.epsilon).cuda().train()
-            # optimizer = optim.Adam(attacker.parameters(), lr=lr)
-            #
-            # # disable gradient
-            # if attack_region == 'template':
-            #     attacker.adv_x.requires_grad = False
-            # elif attack_region == 'search':
-            #     attacker.adv_z.requires_grad = False
 
             state, loss = adversarial_train(args.batch * idx + 1, state, attacker, tracker, optimizer,
                                             gt_bboxes_, attack_region, template_dir, epoch)
