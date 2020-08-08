@@ -279,7 +279,7 @@ class SiamRPNAttack2Pass(SiameseTracker):
             lr[i] = (penalty[sort_idx[i, 0], i] * score_softmax[i, sort_idx[i, 0]] * cfg.TRACK.LR)
             pred_bbox_a[:, i] = pred_bbox[:, sort_idx[i, 0], i] / scale_z
 
-        l1 = self.l1_loss(pred_bbox_a, round(s_x))
+        l1 = self.l1_loss(pred_bbox_a)
         l2 = self.l2_loss(pred_bbox_a, lr, round(s_x))
         l3 = self.l3_loss(score_softmax, sort_idx, 50)
 
